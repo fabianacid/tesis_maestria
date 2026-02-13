@@ -13,7 +13,7 @@ from typing import Optional, Dict, Any
 
 # Configuración de la página
 st.set_page_config(
-    page_title="Sistema de Alertas Financieras",
+    page_title="Sistema de seguimiento y alertas para activos financieros",
     page_icon="",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -375,8 +375,8 @@ def render_change_password_section():
 
 def render_auth_page():
     """Renderiza la página de autenticación."""
-    st.markdown("<h1 class='main-header'>Sistema de Alertas Financieras</h1>", unsafe_allow_html=True)
-    st.markdown("Plataforma de análisis predictivo para inversores")
+    st.markdown("<h1 class='main-header'>Sistema de seguimiento y alertas para activos financieros</h1>", unsafe_allow_html=True)
+    st.markdown("Plataforma de análisis para inversores minoristas")
     st.markdown("---")
 
     # Inicializar vista de autenticación si no existe
@@ -849,9 +849,20 @@ def render_main_dashboard():
     """Renderiza el dashboard principal."""
     render_sidebar()
 
-    st.markdown("<h1 class='main-header'>Sistema de Alertas Financieras</h1>", unsafe_allow_html=True)
-    st.caption("Sistema multiagente que predice la dirección del precio (subida/bajada) a 3 días")
-    st.markdown("---")
+    # Logo y header profesional
+    st.markdown("""
+    <div style='text-align: center; padding: 20px 0; margin-bottom: 30px;'>
+        <div style='display: inline-block; background: linear-gradient(135deg, #ffb3ba 0%, #ff9999 100%);
+                    padding: 15px 30px; border-radius: 15px; box-shadow: 0 4px 15px rgba(255, 179, 186, 0.4);'>
+            <h1 style='color: white; margin: 0; font-size: 2.5rem; font-weight: 700; letter-spacing: 2px;'>
+                📊 Sistema Multi Agente
+            </h1>
+            <p style='color: #f0f0f0; margin: 5px 0 0 0; font-size: 0.95rem; letter-spacing: 1px;'>
+                Seguimiento y alerta de activos financieros.
+            </p>
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     tab1, tab2 = st.tabs(["Análisis de Activos", "Historial de Alertas"])
 

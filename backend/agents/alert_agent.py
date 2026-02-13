@@ -901,10 +901,10 @@ class AlertAgent:
             AlertType.PREDICTION_DIVERGENCE: "divergencia entre predicción y mercado"
         }
 
-        prefix = severity_prefix.get(severity, "ALERTA")
         type_desc = alert_type_desc.get(alert_type, f"{direccion} del {variacion_abs:.2f}%")
 
-        msg = f"{prefix}: {ticker} - {type_desc}. "
+        # No incluir prefijo (ADVERTENCIA, INFO, etc.) porque el dashboard ya lo agrega según el nivel
+        msg = f"{ticker} - {type_desc}. "
         msg += f"Precio actual: ${precio_actual:.2f}, Proyectado: ${precio_predicho:.2f}."
 
         if severity in [AlertSeverity.EMERGENCY, AlertSeverity.CRITICAL]:
