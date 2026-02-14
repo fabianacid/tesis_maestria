@@ -142,8 +142,8 @@ async def predict_ticker(
 
         if market_data is None:
             raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"No se pudieron obtener datos para {ticker}"
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Ticker '{ticker}' no encontrado en Yahoo Finance. Verifica que el símbolo sea correcto y que el activo esté listado."
             )
 
         logger.info(f"[{ticker}] MarketAgent: Datos obtenidos correctamente")
@@ -357,8 +357,8 @@ async def get_market_data(
 
     if market_data is None:
         raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"No se pudieron obtener datos para {ticker}"
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Ticker '{ticker}' no encontrado en Yahoo Finance. Verifica que el símbolo sea correcto y que el activo esté listado."
         )
 
     return MarketDataResponse(

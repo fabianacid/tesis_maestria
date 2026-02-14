@@ -315,21 +315,22 @@ class MarketAgent:
         """Descarga datos históricos desde yfinance."""
         if yf is None:
             logger.error("yfinance no instalado")
-            return self._generar_datos_simulados(ticker)
+            return None
 
         try:
             stock = yf.Ticker(ticker)
             df = stock.history(period=self.periodo_historico)
 
             if df.empty:
-                logger.warning(f"[{ticker}] yfinance sin datos, usando simulados")
-                return self._generar_datos_simulados(ticker)
+                logger.warning(f"[{ticker}] No se encontraron datos en Yahoo Finance. Ticker inválido o sin datos.")
+                return None
 
+            logger.info(f"[{ticker}] Datos reales descargados desde Yahoo Finance: {len(df)} registros")
             return df
 
         except Exception as e:
-            logger.warning(f"[{ticker}] Error yfinance: {e}")
-            return self._generar_datos_simulados(ticker)
+            logger.error(f"[{ticker}] Error al descargar datos de Yahoo Finance: {e}")
+            return None
 
     def _generar_datos_simulados(self, ticker: str) -> pd.DataFrame:
         """Genera datos simulados realistas para pruebas."""

@@ -187,6 +187,14 @@ def get_prediction(ticker: str) -> Optional[Dict[str, Any]]:
         )
         if response.status_code == 200:
             return response.json()
+        elif response.status_code == 404:
+            # Ticker no encontrado
+            return None
+        else:
+            st.error(f"Error del servidor: {response.status_code}")
+            return None
+    except requests.exceptions.ConnectionError:
+        st.error("❌ No se pudo conectar al servidor backend. Verifica que esté corriendo en http://localhost:8000")
         return None
     except Exception as e:
         st.error(f"Error obteniendo datos: {str(e)}")
@@ -878,7 +886,21 @@ def render_main_dashboard():
             if data:
                 st.session_state.last_analysis = data
             else:
-                st.error(f"No se pudieron obtener datos para {ticker}")
+                st.error(f"❌ Ticker '{ticker}' no encontrado")
+                st.warning(f"""
+                **El ticker '{ticker}' no existe en Yahoo Finance o no tiene datos disponibles.**
+
+                Por favor verifica:
+                - ✅ Que el símbolo esté escrito correctamente
+                - ✅ Que sea un ticker válido (ejemplos: AAPL, GOOGL, MSFT, TSLA)
+                - ✅ Que el activo esté listado en mercados financieros
+
+                **Tickers populares que puedes probar:**
+                - **Tech**: AAPL, GOOGL, MSFT, AMZN, TSLA, META, NVDA
+                - **Finance**: JPM, BAC, WFC, GS
+                - **Energía**: XOM, CVX, COP
+                """)
+                st.info("💡 Usa los botones de 'Accesos Rápidos' en el panel lateral para analizar tickers populares.")
 
         if "last_analysis" in st.session_state:
             data = st.session_state.last_analysis
