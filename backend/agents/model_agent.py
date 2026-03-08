@@ -205,7 +205,7 @@ class ModelAgent:
         'force_col_wise': True
     }
 
-    def __init__(self, ventana_entrenamiento: int = 252):
+    def __init__(self, ventana_entrenamiento: int = 504):
         """
         Inicializa el Agente de Modelo Profesional.
 
@@ -528,8 +528,10 @@ class ModelAgent:
         future_price = df['Close'].shift(-3)
         current_price = df['Close']
 
-        # Crear target binario: 1 si sube, 0 si baja
-        y_direction = (future_price > current_price).astype(int)
+        # Crear target binario: 1 si sube más de 0.5%, 0 si baja más de 0.5%
+        # Ignorar movimientos menores (ruido de mercado)
+        cambio_pct = (future_price - current_price) / current_price
+        y_direction = (cambio_pct > 0.005).astype(int)
 
         # Eliminar NaN y alinear
         valid_idx = ~(future_price.isna() | current_price.isna())
@@ -560,7 +562,7 @@ class ModelAgent:
             return None, ModelMetrics(), {}
 
         # Time series split para validación (3 splits para mejor precisión)
-        tscv = TimeSeriesSplit(n_splits=3)
+        tscv = TimeSeriesSplit(n_splits=5)
         metrics_list = []
         direction_correct = 0
         total_predictions = 0

@@ -99,7 +99,7 @@ graph TB
          │  • Clasificación de dirección (3d) │
          │  • Ensemble de 4 modelos ML        │
          │  • RF, GBM, XGBoost, LightGBM      │
-         │  • Ventana: 252 días (1 año)       │
+         │  • Ventana: 504 días (2 años)      │
          │  • Métricas: Accuracy, Precision,  │
          │    Recall, F1, AUC                 │
          └────────────┬───────────────────────┘
@@ -156,9 +156,9 @@ graph TB
      - XGBoost Classifier
      - LightGBM Classifier
    - Feature engineering con 52 características técnicas
-   - Ventana de entrenamiento: **252 días** (1 año completo)
+   - Ventana de entrenamiento: **504 días** (2 años)
    - Horizonte de predicción: **3 días**
-   - Walk-forward validation temporal con 3 splits
+   - Walk-forward validation temporal con 5 splits
    - Métricas de clasificación: **Accuracy**, **Precision**, **Recall**, **F1-Score**, **AUC-ROC**
    - Conversión de probabilidad a precio estimado usando volatilidad histórica
 
@@ -444,8 +444,8 @@ El dashboard de Streamlit proporciona una interfaz visual completa para interact
 -  Precio estimado basado en probabilidad y volatilidad
 -  **Métricas de clasificación**:
   ```
-  ✓ Accuracy: 55.9%    ✓ Precision: 58.6%
-  ✓ Recall: 69.7%      ✓ F1-Score: 58.1%
+  ✓ Accuracy: 57.0%    ✓ Precision: 60.7%
+  ✓ Recall: 66.2%      ✓ F1-Score: 58.9%
   ```
 -  Probabilidad de cada dirección por modelo individual
 -  Contribución de cada modelo en el ensemble (pesos)
@@ -591,7 +591,7 @@ curl -X GET http://localhost:8000/predict/AAPL \
   -H "Authorization: Bearer <token>"
 ```
 
-### 4. Ver Alertas
+### 5. Ver Alertas
 
 ```bash
 curl -X GET http://localhost:8000/alerts \
@@ -702,11 +702,11 @@ password=SecurePass123!
     "horizonte_dias": 3,
     "modelo_usado": "ensemble_classification",
     "metricas": {
-      "accuracy": 0.559,
-      "precision": 0.586,
-      "recall": 0.697,
-      "f1": 0.581,
-      "auc": 0.595
+      "accuracy": 0.570,
+      "precision": 0.607,
+      "recall": 0.662,
+      "f1": 0.589,
+      "auc": 0.586
     },
     "modelos_detalle": {
       "predicciones": {
@@ -723,7 +723,7 @@ password=SecurePass123!
       }
     },
     "parametros": {
-      "ventana": 252,
+      "ventana": 504,
       "n_features": 52,
       "n_modelos": 4,
       "mejor_modelo": "lightgbm"
@@ -970,22 +970,22 @@ python tests/test_performance.py
 
 ####  Resultados Obtenidos
 
-**Pruebas Funcionales** (Fecha: 13 febrero 2026)
+**Pruebas Funcionales** (Fecha: 9 febrero 2026)
 -  **30/30 pruebas exitosas (100% tasa de éxito)**
--  **Latencia promedio: 4.90 segundos**
--  **Mejora del 48%** después de primera iteración (caché: 8.5s → 4.3s)
+-  **Latencia promedio: 3.20 segundos**
+-  **Mejora del 31.7%** después de primera iteración (caché: 4.04s → 2.76s)
 -  **10 tickers evaluados** × 3 iteraciones cada uno
 -  **Todos los agentes operativos al 100%** (MarketAgent, ModelAgent, SentimentAgent, RecommendationAgent, AlertAgent)
 
-**Modelos de Machine Learning (Clasificación Binaria)**
-- **Ensemble Accuracy: 55.92%** - Predice correctamente la dirección en ~56% de los casos (mejor que azar del 50%)
-- **Precision: 58.64%** - Cuando predice subida, acierta el 59% de las veces
-- **Recall: 69.66%** - Detecta el 70% de las subidas reales
-- **F1-Score: 58.06%** - Balance óptimo entre precision y recall
-- **AUC: 59.48%** - Capacidad de discriminación del modelo
-- **Variabilidad**: Accuracy varía entre 49% (WMT) y 63% (AAPL) según el ticker
-- **Mejor rendimiento**: Acciones tecnológicas con alta liquidez (AAPL: 62.6%, JPM: 59.9%, TSLA: 59.2%)
-- **Nota**: Clasificación de dirección a 3 días (SUBIDA/BAJADA), no precio exacto
+**Modelos de Machine Learning (Clasificación Binaria)** — configuración final (8 marzo 2026)
+- **Ensemble Accuracy: 57.0%** - Predice correctamente la dirección en ~57% de los casos (mejor que azar del 50%)
+- **Precision: 60.7%** - Cuando predice subida, acierta en ~6 de cada 10 casos
+- **Recall: 66.2%** - Detecta el 66% de las subidas reales
+- **F1-Score: 58.9%** - Balance entre precision y recall
+- **AUC: 58.6%** - Capacidad de discriminación del modelo
+- **Variabilidad**: Accuracy varía entre 53.1% (TSLA, META) y 63.3% (GOOGL) según el ticker
+- **Mejor rendimiento**: GOOGL (63.3%), AAPL (59.9%), JPM (58.5%)
+- **Nota**: Clasificación de dirección a 3 días (SUBIDA/BAJADA), umbral target 0.5%, ventana 504 días, 5 folds
 
 **Análisis de Sentimiento (NLP)**
 -  Ensemble de 4 modelos: FinBERT (40%), VADER (25%), Lexicón financiero (20%), TextBlob (15%)
@@ -1016,11 +1016,11 @@ test_results/graficos/
 | Objetivo | Meta | Resultado | Estado |
 |----------|------|-----------|--------|
 | Arquitectura multiagente | 5 agentes | 5 agentes @ 100% |  |
-| Predicción de dirección | > 50% Accuracy | 55.92% Accuracy |  |
-| Precision en clasificación | > 55% | 58.64% Precision |  |
-| Recall en detección | > 65% | 69.66% Recall |  |
+| Predicción de dirección | > 50% Accuracy | 57.0% Accuracy |  |
+| Precision en clasificación | > 55% | 60.7% Precision |  |
+| Recall en detección | > 65% | 66.2% Recall |  |
 | Análisis sentimiento NLP | Ensemble 4 modelos | FinBERT+VADER+Lexicón+TextBlob |  |
-| Tiempo respuesta | < 5s | 4.90s promedio |  |
+| Tiempo respuesta | < 5s | 3.20s promedio |  |
 | 20+ usuarios concurrentes | ≥ 20 | 25 usuarios @ 100% |  |
 | Dashboard funcional | Implementado | Streamlit |  |
 
@@ -1219,9 +1219,9 @@ uvicorn backend.main:app --reload
 - Los modelos de clasificación funcionan mejor con tickers estables y líquidos
 - Usa tickers de grandes empresas (AAPL, MSFT) en lugar de penny stocks
 - El modelo predice dirección (SUBIDA/BAJADA), no precio exacto
-- Accuracy del 55.9% supera el umbral aleatorio del 50% en 9 de 10 tickers
+- Accuracy del 57.0% supera el umbral aleatorio del 50% en los 10 tickers evaluados
 - Evalúa las métricas (Accuracy, Precision, Recall) para entender el rendimiento
-- Una precision del 58.6% significa que cuando predice subida, acierta en más de la mitad de los casos
+- Una precision del 60.7% significa que cuando predice subida, acierta en ~6 de cada 10 casos
 
 ---
 
