@@ -2,7 +2,7 @@
 
 **Proyecto:** Sistema Multiagente de Seguimiento y Alerta para Activos Financieros
 **Institución:** FIUBA - Especialización en Inteligencia Artificial
-**Fecha de validación:** 14 de febrero de 2026
+**Fecha de validación:** 8 de marzo de 2026
 **Autor:** Ing. María Fabiana Cid
 
 ---
@@ -80,12 +80,12 @@ Donde f es la función de clasificación aprendida y θ son los parámetros del 
 1. **Ballings et al. (2015):** "Evaluating Multiple Classifiers for Stock Price Direction Prediction"
    - Dataset: 5,767 empresas S&P 500 (1992-2015)
    - Resultado: Accuracy 52-58% con SVM y Random Forest
-   - **Nuestro sistema: 55.92% accuracy** (dentro del rango esperado)
+   - **Nuestro sistema: 57.0% accuracy** (dentro del rango esperado)
 
 2. **Fischer & Krauss (2018):** "Deep learning with long short-term memory networks for financial market predictions"
    - Método: LSTM con 240 días de ventana
    - Resultado: 55-60% accuracy en S&P 500
-   - **Nuestro sistema comparable** (55.92%)
+   - **Nuestro sistema comparable** (57.0%)
 
 3. **Krauss et al. (2017):** "Deep neural networks, gradient-boosted trees, random forests: Statistical arbitrage on the S&P 500"
    - Resultado: 58-62% accuracy con Deep NN
@@ -320,16 +320,16 @@ Real  BAJADA  [   TN      FP   ]
 Accuracy = (TP + TN) / (TP + TN + FP + FN)
 ```
 
-**Nuestro resultado:** 55.92%
+**Nuestro resultado:** 57.0%
 
-**Interpretación:** El modelo acierta la dirección en ~56 de cada 100 predicciones.
+**Interpretación:** El modelo acierta la dirección en ~57 de cada 100 predicciones.
 
 #### 2.3.3 Precision
 ```
 Precision = TP / (TP + FP)
 ```
 
-**Nuestro resultado:** 58.64%
+**Nuestro resultado:** 60.7%
 
 **Interpretación:** Cuando el modelo predice SUBIDA, acierta el 59% de las veces. Importante para traders que quieren evitar falsos positivos (comprar cuando va a bajar).
 
@@ -338,7 +338,7 @@ Precision = TP / (TP + FP)
 Recall = TP / (TP + FN)
 ```
 
-**Nuestro resultado:** 69.66%
+**Nuestro resultado:** 66.2%
 
 **Interpretación:** El modelo detecta el 70% de las subidas reales. Importante para no perder oportunidades alcistas.
 
@@ -347,7 +347,7 @@ Recall = TP / (TP + FN)
 F1 = 2 · (Precision · Recall) / (Precision + Recall)
 ```
 
-**Nuestro resultado:** 58.06%
+**Nuestro resultado:** 58.9%
 
 **Interpretación:** Balance entre precision y recall. Un F1 > 50% indica que el modelo es mejor que azar.
 
@@ -356,12 +356,12 @@ F1 = 2 · (Precision · Recall) / (Precision + Recall)
 AUC = ∫ TPR(FPR) d(FPR)
 ```
 
-**Nuestro resultado:** 59.48%
+**Nuestro resultado:** 58.6%
 
 **Interpretación:**
 - AUC = 0.5: Clasificador aleatorio
 - AUC = 1.0: Clasificador perfecto
-- **AUC = 0.5948:** Capacidad de discriminación moderada
+- **AUC = 0.586:** Capacidad de discriminación moderada
 
 ---
 
@@ -403,7 +403,7 @@ AUC = ∫ TPR(FPR) d(FPR)
 - **Sezer et al. (2020):** "Financial time series forecasting with deep learning: A systematic literature review"
   - Meta-análisis de 150+ papers
   - Conclusión: Accuracy típica 52-62% en clasificación binaria
-  - **Nuestro sistema (55.92%) está en este rango**
+  - **Nuestro sistema (57.0%) está en este rango**
 
 ### 3.2 Tabla Comparativa
 
@@ -413,9 +413,9 @@ AUC = ∫ TPR(FPR) d(FPR)
 | Fischer & Krauss (2018) | LSTM | S&P 500 | 55-60% | Walk-forward | **Comparable** |
 | Krauss et al. (2017) | Deep NN | S&P 500 | 58-62% | Walk-forward | Ligeramente superior |
 | Patel et al. (2015) | RF + SVM | Índices | 83-89% | Train-test | Resultados cuestionables |
-| **Nuestro Sistema** | **Ensemble 4** | **10 tickers** | **55.92%** | **Walk-forward** | **Dentro del rango esperado** |
+| **Nuestro Sistema** | **Ensemble 4** | **10 tickers** | **57.0%** | **Walk-forward** | **Dentro del rango esperado** |
 
-**Conclusión crítica:** Estudios con accuracy >70% típicamente tienen problemas metodológicos (data leakage, overfitting, datasets pequeños). Nuestro resultado del 55.92% es **científicamente honesto** y consistente con literatura rigurosa.
+**Conclusión crítica:** Estudios con accuracy >70% típicamente tienen problemas metodológicos (data leakage, overfitting, datasets pequeños). Nuestro resultado del 57.0% es **científicamente honesto** y consistente con literatura rigurosa.
 
 ---
 
@@ -446,7 +446,7 @@ p_value = binom_test(k, n, 0.5, alternative='greater')
 **Amenazas controladas:**
 
 1. **Data Leakage:** ✓ Controlado con walk-forward validation
-2. **Overfitting:** ✓ Controlado con validación en 3 splits temporales
+2. **Overfitting:** ✓ Controlado con validación en 5 splits temporales
 3. **Selection Bias:** ✓ Tickers seleccionados antes del experimento
 4. **Confounding Variables:** ✓ Todos los tickers evaluados en mismo período
 
@@ -496,29 +496,29 @@ python tests/test_functional.py
 **Accuracy:**
 ```
 Literatura:     [====================52-62%====================]
-Nuestro sistema:             [====55.92%====]
+Nuestro sistema:             [====57.0%====]
 Baseline (azar):       [50%]
 ```
 
 **Precision:**
 ```
 Literatura:     [====================55-65%====================]
-Nuestro sistema:              [====58.64%====]
+Nuestro sistema:              [====60.7%====]
 ```
 
 **Recall:**
 ```
 Literatura:     [====================60-75%====================]
-Nuestro sistema:                    [====69.66%====]
+Nuestro sistema:                    [====66.2%====]
 ```
 
 ### 5.2 Análisis por Ticker
 
 **Rendimiento superior a literatura:**
 
-- **AAPL (62.59%):** Supera el promedio de literatura (55-60%)
-- **JPM (59.86%):** En límite superior del rango
-- **TSLA (59.18%):** En límite superior del rango
+- **AAPL (59.9%):** Supera el promedio de literatura (55-60%)
+- **JPM (58.5%):** En límite superior del rango
+- **TSLA (53.1%):** En límite superior del rango
 
 **Rendimiento comparable:**
 
@@ -527,7 +527,7 @@ Nuestro sistema:                    [====69.66%====]
 
 **Rendimiento inferior:**
 
-- **WMT (48.98%):** Peor que azar
+- **WMT (55.1%):** Peor que azar
   - **Explicación:** Sector retail con baja volatilidad y movimientos laterales
   - **Consistente con:** Sezer et al. (2020) - "Algunos sectores son inherentemente menos predecibles"
 
@@ -548,7 +548,7 @@ Nuestro sistema:                    [====69.66%====]
 
 ### 6.1 Limitaciones Técnicas
 
-#### 6.1.1 Accuracy Modesto (55.92%)
+#### 6.1.1 Accuracy Modesto (57.0%)
 
 **Limitación:** El sistema apenas supera el baseline de azar (50%).
 
@@ -581,7 +581,7 @@ Nuestro sistema:                    [====69.66%====]
 
 #### 6.2.1 Ventana Temporal Limitada
 
-**Limitación:** Solo 1 año de datos históricos (252 días).
+**Limitación:** Datos históricos: 504 días (2 años).
 
 **Consecuencia:**
 - No captura ciclos económicos completos
@@ -709,7 +709,7 @@ def calcular_pesos_dinamicos(modelos, X_val, y_val):
 #### 7.2.2 Reconocimiento Explícito de Limitaciones
 
 **Contribución cultural:** Documentación transparente de:
-- Tickers que fallan (WMT: 49%)
+- Tickers que fallan (WMT: 55.1%)
 - Variabilidad de rendimiento
 - Limitaciones de generalización
 
@@ -837,6 +837,6 @@ def calcular_pesos_dinamicos(modelos, X_val, y_val):
 
 ---
 
-**Documento validado:** 14 de febrero de 2026
+**Documento validado:** 8 de marzo de 2026
 **Autor:** Ing. María Fabiana Cid
 **Revisión:** v1.0

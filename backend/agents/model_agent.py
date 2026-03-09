@@ -12,7 +12,7 @@ Modelos implementados (Clasificación Binaria):
 
 Arquitectura:
 - Feature engineering avanzado con 52 características técnicas
-- Walk-forward validation temporal con 3 splits
+- Walk-forward validation temporal con 5 splits
 - Ensemble con ponderación dinámica por performance (F1-Score)
 - Predicción de dirección (SUBIDA/BAJADA) a 3 días
 - Métricas de clasificación: Accuracy, Precision, Recall, F1-Score, AUC-ROC
@@ -210,7 +210,7 @@ class ModelAgent:
         Inicializa el Agente de Modelo Profesional.
 
         Args:
-            ventana_entrenamiento: Períodos para entrenamiento (default: 252, 1 año)
+            ventana_entrenamiento: Períodos para entrenamiento (default: 504, 2 años)
         """
         self.ventana_entrenamiento = ventana_entrenamiento
         self.modelo_activo = "ensemble"
@@ -561,7 +561,7 @@ class ModelAgent:
         if len(X) < 15:
             return None, ModelMetrics(), {}
 
-        # Time series split para validación (3 splits para mejor precisión)
+        # Time series split para validación (5 splits para mejor precisión)
         tscv = TimeSeriesSplit(n_splits=5)
         metrics_list = []
         direction_correct = 0

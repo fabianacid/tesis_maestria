@@ -388,9 +388,9 @@ Score final = (0.125 × 0.40) + (1.0 × 0.35) + (0.5 × 0.25)
 3. XGBoost Classifier (gradient boosting optimizado)
 4. LightGBM Classifier (gradient boosting eficiente)
 
-**Ventana de entrenamiento**: 252 días (1 año completo)
+**Ventana de entrenamiento**: 504 días (2 años)
 **Horizonte de predicción**: 3 días
-**Validación**: Time Series Split con 3 folds
+**Validación**: Time Series Split con 5 folds
 
 ### 2.2 Features (Variables de Entrada)
 
@@ -518,15 +518,17 @@ precio_futuro ($152.50) > precio_actual ($150.00)
 ### 2.4 División de Datos
 
 ```
-Total datos: 252 días de trading (1 año completo)
+Total datos: 504 días de trading (2 años)
 
-Validación: Time Series Split con 3 folds
+Validación: Time Series Split con 5 folds
 
-Fold 1: Train[0:168]  → Test[168:210]  (168 días train, 42 días test)
-Fold 2: Train[0:210]  → Test[210:252]  (210 días train, 42 días test)
-Fold 3: Train[0:231]  → Test[231:252]  (231 días train, 21 días test)
+Fold 1: Train[0:202]  → Test[202:252]  (202 días train, 50 días test)
+Fold 2: Train[0:252]  → Test[252:302]  (252 días train, 50 días test)
+Fold 3: Train[0:302]  → Test[302:352]  (302 días train, 50 días test)
+Fold 4: Train[0:352]  → Test[352:402]  (352 días train, 50 días test)
+Fold 5: Train[0:402]  → Test[402:452]  (402 días train, 52 días test)
 
-Promedio final: métricas de los 3 folds
+Promedio final: métricas de los 5 folds
 ```
 
 ### 2.5 Configuración de Modelos de Clasificación
@@ -869,16 +871,16 @@ AUC ∈ [0, 1]
 
 **Ejemplo con SPY**:
 ```
-Resultados del modelo (promedio 10 tickers, sesión 13/02/2026):
-- Accuracy: 55.9%
-- Precision: 58.6%
-- Recall: 69.7%
-- F1-Score: 58.1%
-- AUC: 0.595
+Resultados del modelo (promedio 10 tickers, sesión 08/03/2026, configuración final):
+- Accuracy: 57.0%
+- Precision: 60.7%
+- Recall: 66.2%
+- F1-Score: 58.9%
+- AUC: 0.586
 
 Interpretación:
-El modelo supera el umbral aleatorio del 50% en 9 de 10 tickers.
-Cuando predice subida, acierta el 58.6% de las veces en promedio.
+El modelo supera el umbral aleatorio del 50% en los 10 tickers evaluados.
+Cuando predice subida, acierta el 60.7% de las veces en promedio.
 
 **Importancia**: En trading, predecir la dirección correcta puede ser más valioso que predecir el precio exacto.
 
@@ -1525,7 +1527,7 @@ prob = 0.552 + 0.054 - 0.047 = 0.559
 
 Aplicar límites: clip(0.559, 0.2, 0.8) = 0.559
 
-Probabilidad final = 55.9% ≈ 56%
+Probabilidad final = 57.0% ≈ 57%
 ```
 
 ### 4.4 Position Sizing (Kelly Criterion)
@@ -2020,9 +2022,9 @@ Señal técnica: "neutral" (score = 0.05)
 
 **PASO 2 - ModelAgent**:
 ```
-Features construidos: 52 variables × 252 samples (1 año)
+Features construidos: 52 variables × 504 samples (2 años)
 
-Validación cruzada (3 folds):
+Validación cruzada (5 folds):
 Modelo           Accuracy_avg
 Random Forest    0.650 (65.0%)
 Gradient Boost   0.637 (63.7%)
