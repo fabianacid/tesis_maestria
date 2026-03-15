@@ -221,6 +221,7 @@ proyecto_final/
 │   ├── database.py          # Modelos SQLAlchemy
 │   ├── schemas.py           # Schemas Pydantic
 │   ├── auth.py              # Autenticación JWT
+│   ├── email_service.py     # Servicio de email (recuperación de contraseña)
 │   ├── routers/
 │   │   ├── auth_router.py   # Endpoints de autenticación
 │   │   ├── predict_router.py # Endpoints de predicción
@@ -233,6 +234,8 @@ proyecto_final/
 │       └── alert_agent.py
 ├── dashboard/
 │   └── app.py               # Dashboard Streamlit
+├── docs/
+│   └── ANEXO_TECNICO_CALCULOS.md  # Fórmulas y cálculos técnicos del sistema
 ├── tests/                    # Suite de pruebas
 │   ├── __init__.py
 │   ├── test_functional.py   # Pruebas funcionales (30 tests)
@@ -240,12 +243,23 @@ proyecto_final/
 ├── test_results/             # Resultados de pruebas
 │   ├── graficos/            # Gráficos (PDF/PNG)
 │   └── *.json               # Resultados en JSON
+├── Chapter1.tex             # Cap. 1: Introducción
+├── Chapter2.tex             # Cap. 2: Marco teórico
+├── Chapter3.tex             # Cap. 3: Diseño e implementación
+├── Chapter4.tex             # Cap. 4: Ensayos y resultados
+├── Chapter5.tex             # Cap. 5: Conclusiones y trabajo futuro
 ├── requirements.txt
 ├── requirements-test.txt     # Dependencias de testing
 ├── run_all_tests.bat        # Script Windows para ejecutar tests
 ├── run_all_tests.sh         # Script Linux/Mac para ejecutar tests
 ├── manage_services.sh       # Script de gestión de servicios (start/stop/restart)
 ├── check_setup.py           # Verificación de instalación
+├── reset_password_helper.py # Utilidad para reset de contraseña vía consola
+├── test_reset_flow.py       # Prueba del flujo de recuperación de contraseña
+├── VALIDACION_ACADEMICA.md  # Validación académica: fundamentos, estado del arte y métricas
+├── INFORME_PRUEBAS.md       # Informe detallado de resultados de pruebas
+├── CONFIGURATION.md         # Configuración avanzada y deployment
+├── EXAMPLES.md              # Ejemplos prácticos de uso
 ├── .env.example
 └── README.md
 ```
