@@ -583,7 +583,7 @@ def render_prediction_card(prediccion: Dict, precio_actual: float = 0):
             for modelo, pred in predicciones.items():
                 peso = pesos.get(modelo, 0) * 100
                 nombre = nombres_modelos.get(modelo, modelo)
-                data.append({"Modelo": nombre, "Predicción": f"${pred:.2f}", "Peso": f"{peso:.1f}%"})
+                data.append({"Modelo": nombre, "P(Subida)": f"{pred:.0%}", "Peso": f"{peso:.1f}%"})
 
             df = pd.DataFrame(data)
             st.dataframe(df, use_container_width=True, hide_index=True)
