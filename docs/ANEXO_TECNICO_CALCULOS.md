@@ -382,18 +382,20 @@ Score final = (0.125 × 0.40) + (1.0 × 0.35) + (0.5 × 0.25)
 
 **Objetivo**: Predecir la dirección del precio (SUBIDA o BAJADA) a 3 días, no el precio exacto.
 
-**Modelos utilizados** (4 modelos base + opcionales según disponibilidad de librerías):
+**Modelos utilizados** (base + opcionales según disponibilidad de librerías):
 
 Modelos siempre presentes:
-1. Linear Classifier (regresión lineal como clasificador)
-2. Ridge Classifier (regresión lineal con regularización L2)
+1. LogisticRegression (Linear) — clasificador probabilístico, genera predict_proba
+2. RidgeClassifier — genera clase directa (0/1), no probabilidad; participa en ensemble con valor discreto
 3. Random Forest Classifier (ensemble de árboles de decisión)
 4. Gradient Boosting Classifier (boosting gradual para clasificación)
 
 Modelos opcionales (si las librerías están instaladas):
 5. XGBoost Classifier (gradient boosting optimizado) — si xgboost disponible
 6. LightGBM Classifier (gradient boosting eficiente) — si lightgbm disponible
-7. LSTM (red neuronal recurrente) — si tensorflow disponible
+7. LSTM (red neuronal recurrente) — si pytorch disponible
+
+**Ensemble probabilístico efectivo**: RF, GB, XGB y LGB aportan probabilidades continuas [0,1] vía predict_proba. LogisticRegression también. RidgeClassifier aporta 0 o 1 directamente.
 
 **Ventana de entrenamiento**: 252 días (1 año)
 **Horizonte de predicción**: 3 días

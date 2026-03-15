@@ -151,15 +151,16 @@ graph TB
 
 2. **ModelAgent**
    - **Modelo de clasificación** que predice dirección del precio (subida/bajada)
-   - Ensemble con 4 modelos base (siempre presentes):
-     - Linear Classifier
-     - Ridge Classifier
+   - Ensemble con modelos base (siempre presentes):
+     - LogisticRegression (Linear) — clasificador probabilístico
+     - RidgeClassifier — produce clase directa (0/1), no probabilidad
      - Random Forest Classifier
      - Gradient Boosting Classifier
    - Modelos opcionales (según librerías instaladas):
      - XGBoost Classifier (si xgboost disponible)
      - LightGBM Classifier (si lightgbm disponible)
      - LSTM (si pytorch disponible)
+   - **Ensemble probabilístico efectivo**: RF, GB, XGB, LGB (los que aportan predict_proba)
    - Feature engineering con 52 características técnicas
    - Ventana de entrenamiento: **252 días** (1 año)
    - Horizonte de predicción: **3 días**
