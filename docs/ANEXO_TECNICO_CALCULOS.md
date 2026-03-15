@@ -24,7 +24,7 @@
 
 **Datos descargados**:
 ```python
-periodo = 6 meses
+periodo = 1 año (1y)
 intervalo = 1 día
 datos = {precio_apertura, precio_cierre, precio_máximo, precio_mínimo, volumen}
 ```
@@ -382,13 +382,20 @@ Score final = (0.125 × 0.40) + (1.0 × 0.35) + (0.5 × 0.25)
 
 **Objetivo**: Predecir la dirección del precio (SUBIDA o BAJADA) a 3 días, no el precio exacto.
 
-**Modelos utilizados** (4 modelos de clasificación):
-1. Random Forest Classifier (ensemble de árboles de decisión)
-2. Gradient Boosting Classifier (boosting gradual para clasificación)
-3. XGBoost Classifier (gradient boosting optimizado)
-4. LightGBM Classifier (gradient boosting eficiente)
+**Modelos utilizados** (4 modelos base + opcionales según disponibilidad de librerías):
 
-**Ventana de entrenamiento**: 504 días (2 años)
+Modelos siempre presentes:
+1. Linear Classifier (regresión lineal como clasificador)
+2. Ridge Classifier (regresión lineal con regularización L2)
+3. Random Forest Classifier (ensemble de árboles de decisión)
+4. Gradient Boosting Classifier (boosting gradual para clasificación)
+
+Modelos opcionales (si las librerías están instaladas):
+5. XGBoost Classifier (gradient boosting optimizado) — si xgboost disponible
+6. LightGBM Classifier (gradient boosting eficiente) — si lightgbm disponible
+7. LSTM (red neuronal recurrente) — si tensorflow disponible
+
+**Ventana de entrenamiento**: 252 días (1 año)
 **Horizonte de predicción**: 3 días
 **Validación**: Time Series Split con 5 folds
 
@@ -518,15 +525,15 @@ precio_futuro ($152.50) > precio_actual ($150.00)
 ### 2.4 División de Datos
 
 ```
-Total datos: 504 días de trading (2 años)
+Total datos: 252 días de trading (1 año)
 
 Validación: Time Series Split con 5 folds
 
-Fold 1: Train[0:202]  → Test[202:252]  (202 días train, 50 días test)
-Fold 2: Train[0:252]  → Test[252:302]  (252 días train, 50 días test)
-Fold 3: Train[0:302]  → Test[302:352]  (302 días train, 50 días test)
-Fold 4: Train[0:352]  → Test[352:402]  (352 días train, 50 días test)
-Fold 5: Train[0:402]  → Test[402:452]  (402 días train, 52 días test)
+Fold 1: Train[0:101]  → Test[101:126]  (101 días train, 25 días test)
+Fold 2: Train[0:126]  → Test[126:151]  (126 días train, 25 días test)
+Fold 3: Train[0:151]  → Test[151:176]  (151 días train, 25 días test)
+Fold 4: Train[0:176]  → Test[176:201]  (176 días train, 25 días test)
+Fold 5: Train[0:201]  → Test[201:252]  (201 días train, 51 días test)
 
 Promedio final: métricas de los 5 folds
 ```
@@ -612,66 +619,53 @@ Hiperparámetros:
 **Método: Promedio Ponderado por Accuracy**
 
 ```python
+# modelos_activos = [Linear, Ridge, RF, GBM] + [XGB, LGB, LSTM] si disponibles
 Paso 1: Entrenar cada modelo con validación cruzada
-for modelo in [RF, GBM, XGB, LGBM]:
-    for fold in time_series_cv(n_splits=3):
+for modelo in modelos_activos:
+    for fold in time_series_cv(n_splits=5):
         modelo.fit(X_train_fold, y_train_fold)
         pred_proba = modelo.predict_proba(X_val_fold)[:, 1]
         pred_class = (pred_proba > 0.5).astype(int)
         calcular métricas (Accuracy, Precision, Recall, F1, AUC)
 
 Paso 2: Calcular Accuracy promedio de cada modelo
-accuracy_rf = promedio(accuracy_folds_rf)
-accuracy_gbm = promedio(accuracy_folds_gbm)
-accuracy_xgb = promedio(accuracy_folds_xgb)
-accuracy_lgbm = promedio(accuracy_folds_lgbm)
+accuracy_i = promedio(accuracy_folds_modelo_i)
 
 Paso 3: Calcular pesos basados en Accuracy
 peso_i = accuracy_i / Σ(accuracy_j)
 
 Paso 4: Entrenar modelos con todos los datos
-for modelo in [RF, GBM, XGB, LGBM]:
+for modelo in modelos_activos:
     modelo.fit(X_completo, y_completo)
 
 Paso 5: Predicción final ponderada (probabilidades)
-prob_rf = modelo_rf.predict_proba(X_nuevo)[:, 1]
-prob_gbm = modelo_gbm.predict_proba(X_nuevo)[:, 1]
-prob_xgb = modelo_xgb.predict_proba(X_nuevo)[:, 1]
-prob_lgbm = modelo_lgbm.predict_proba(X_nuevo)[:, 1]
+prob_i = modelo_i.predict_proba(X_nuevo)[:, 1]
 
 prob_ensemble = Σ(peso_i × prob_i)
 ```
 
-**Ejemplo numérico**:
+**Ejemplo numérico** (con modelos base siempre presentes):
 ```
-VALIDACIÓN CRUZADA:
-Modelo           Fold1   Fold2   Fold3   Accuracy_avg
-Random Forest    0.64    0.66    0.65    0.650
-Gradient Boost   0.63    0.64    0.64    0.637
-XGBoost          0.66    0.67    0.66    0.663
-LightGBM         0.67    0.68    0.68    0.677  ← Mejor
+VALIDACIÓN CRUZADA (5 folds, ventana=252 días):
+Modelo           F1     F2     F3     F4     F5    Accuracy_avg
+Linear           0.55   0.56   0.54   0.55   0.56   0.552
+Ridge            0.56   0.57   0.55   0.57   0.57   0.564
+Random Forest    0.64   0.66   0.65   0.64   0.65   0.648
+Gradient Boost   0.63   0.64   0.64   0.63   0.64   0.636
+XGBoost*         0.66   0.67   0.66   0.65   0.67   0.662  (* si disponible)
+LightGBM*        0.67   0.68   0.68   0.67   0.68   0.676  (* si disponible)
 
-CÁLCULO DE PESOS:
+CÁLCULO DE PESOS (ejemplo con los 4 modelos base):
 Modelo           Accuracy  Peso (normalizado)
-Random Forest    0.650     0.2423 (24.23%)
-Gradient Boost   0.637     0.2338 (23.38%)
-XGBoost          0.663     0.2535 (25.35%)
-LightGBM         0.677     0.2704 (27.04%) ← Mayor peso
-                           ------
-Total            2.627     1.0000
+Linear           0.552     0.2759 → ajustado según acc relativa
+Ridge            0.564     ...
+Random Forest    0.648     → Mayor peso relativo
+Gradient Boost   0.636     ...
+peso_i = accuracy_i / Σ(accuracy_j)
 
 PREDICCIÓN PARA DÍA t+3:
-Probabilidades de SUBIDA:
-RF:    0.88  (88%)
-GBM:   1.00  (100%)
-XGB:   0.92  (92%)
-LGBM:  0.97  (97%)  ← Mayor peso
-
-Prob_ensemble = (0.2423×0.88) + (0.2338×1.00) + (0.2535×0.92) + (0.2704×0.97)
-              = 0.2132 + 0.2338 + 0.2332 + 0.2623
-              = 0.9425 = 94.25%
-
-Interpretación: El ensemble predice SUBIDA con 94.25% de probabilidad
+prob_ensemble = Σ(peso_i × prob_i)
+Interpretación: dirección con mayor probabilidad → SUBIDA o BAJADA
 ```
 
 ### 2.7 Conversión de Probabilidad a Precio
@@ -1929,7 +1923,7 @@ Usuario solicita análisis de TICKER
          ↓
 ┌────────────────────────────────────────┐
 │ 1. MarketAgent                         │
-│   - Descargar datos (6 meses)         │
+│   - Descargar datos (1 año)           │
 │   - Calcular 35+ indicadores técnicos │
 │   - Detectar régimen de mercado       │
 │   - Generar señal unificada           │
@@ -1939,7 +1933,8 @@ Usuario solicita análisis de TICKER
 ┌────────────────────────────────────────┐
 │ 2. ModelAgent                          │
 │   - Construir features (52 variables) │
-│   - Ejecutar 4 modelos clasificación  │
+│   - Ejecutar 4-7 modelos clasificación│
+│     (4 base + XGB/LGB/LSTM opcionales)│
 │   - Ensemble ponderado por Accuracy   │
 │   - Calcular métricas (Accuracy,      │
 │     Precision, Recall, F1, AUC)       │
@@ -2022,28 +2017,27 @@ Señal técnica: "neutral" (score = 0.05)
 
 **PASO 2 - ModelAgent**:
 ```
-Features construidos: 52 variables × 504 samples (2 años)
+Features construidos: 52 variables × 252 samples (1 año)
 
-Validación cruzada (5 folds):
-Modelo           Accuracy_avg
-Random Forest    0.650 (65.0%)
-Gradient Boost   0.637 (63.7%)
-XGBoost          0.663 (66.3%)
-LightGBM         0.677 (67.7%)  ← Mejor
+Validación cruzada (5 folds, TimeSeriesSplit):
+Modelo           Accuracy_avg   (modelos base siempre presentes)
+Linear           0.552 (55.2%)
+Ridge            0.564 (56.4%)
+Random Forest    0.648 (64.8%)  ← Mayor peso base
+Gradient Boost   0.636 (63.6%)
+XGBoost*         0.662 (66.2%)  (* si xgboost instalado)
+LightGBM*        0.676 (67.6%)  (* si lightgbm instalado)
 
-Pesos calculados:
-- LGBM: 27% (mejor modelo)
-- XGB: 25%
-- RF: 24%
-- GB: 23%
+Pesos calculados (normalizados por accuracy):
+peso_i = accuracy_i / Σ(accuracy_j)
 
 Probabilidades individuales (SUBIDA):
-- RF: 0.85 (85%)
-- GBM: 0.92 (92%)
-- XGB: 0.88 (88%)
-- LGBM: 0.90 (90%)
+- Linear: 0.52
+- Ridge: 0.54
+- RF: 0.85
+- GBM: 0.88
 
-Probabilidad ensemble: 0.887 (88.7% SUBIDA)
+Probabilidad ensemble: Σ(peso_i × prob_i)
 Precio actual: $397.20
 Volatilidad histórica: 1.8%
 Variación estimada: +2.83%

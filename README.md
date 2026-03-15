@@ -41,7 +41,7 @@ Este proyecto implementa un sistema multiagente que integra:
 
 - **Obtención de datos de mercado** mediante yfinance (datos reales, sin simulaciones)
 - **Análisis técnico** con 35+ indicadores y detección de anomalías
-- **Predicción de dirección de precios** con ensemble de 4 modelos de clasificación ML
+- **Predicción de dirección de precios** con ensemble de 4 modelos base + 3 opcionales de clasificación ML
 - **Análisis de sentimiento** con 4 métodos NLP
 - **Generación de recomendaciones** explicables multi-factor
 - **Sistema de alertas** con umbrales configurables
@@ -97,9 +97,10 @@ graph TB
          ┌────────────────────────────────────┐
          │  2. ModelAgent                     │
          │  • Clasificación de dirección (3d) │
-         │  • Ensemble de 4 modelos ML        │
-         │  • RF, GBM, XGBoost, LightGBM      │
-         │  • Ventana: 504 días (2 años)      │
+         │  • Ensemble de 4 base + 3 opcionales│
+         │  • Linear, Ridge, RF, GBM          │
+         │  • + XGBoost, LightGBM, LSTM (opt) │
+         │  • Ventana: 252 días (1 año)       │
          │  • Métricas: Accuracy, Precision,  │
          │    Recall, F1, AUC                 │
          └────────────┬───────────────────────┘
@@ -150,13 +151,17 @@ graph TB
 
 2. **ModelAgent**
    - **Modelo de clasificación** que predice dirección del precio (subida/bajada)
-   - Ensemble de 4 modelos de Machine Learning:
+   - Ensemble con 4 modelos base (siempre presentes):
+     - Linear Classifier
+     - Ridge Classifier
      - Random Forest Classifier
      - Gradient Boosting Classifier
-     - XGBoost Classifier
-     - LightGBM Classifier
+   - Modelos opcionales (según librerías instaladas):
+     - XGBoost Classifier (si xgboost disponible)
+     - LightGBM Classifier (si lightgbm disponible)
+     - LSTM (si pytorch disponible)
    - Feature engineering con 52 características técnicas
-   - Ventana de entrenamiento: **504 días** (2 años)
+   - Ventana de entrenamiento: **252 días** (1 año)
    - Horizonte de predicción: **3 días**
    - Walk-forward validation temporal con 5 splits
    - Métricas de clasificación: **Accuracy**, **Precision**, **Recall**, **F1-Score**, **AUC-ROC**
@@ -192,7 +197,7 @@ graph TB
      - **Warning**: 3% de variación
      - **Critical**: 7% de variación
    - Persistencia en base de datos con timestamps
-   - Estados: Info / Warning / Critical
+   - 6 niveles de severidad: Info / Low / Medium / High / Critical / Emergency
    - Gestión de alertas leídas/no leídas
    - Integrable con notificaciones push/email
 
@@ -710,23 +715,27 @@ password=SecurePass123!
     },
     "modelos_detalle": {
       "predicciones": {
+        "linear": 0.55,
+        "ridge": 0.57,
         "random_forest": 0.88,
-        "gradient_boosting": 1.00,
+        "gradient_boosting": 0.85,
         "xgboost": 0.92,
-        "lightgbm": 0.97
+        "lightgbm": 0.90
       },
       "pesos": {
-        "random_forest": 0.2423,
-        "gradient_boosting": 0.2338,
-        "xgboost": 0.2535,
-        "lightgbm": 0.2704
+        "linear": 0.12,
+        "ridge": 0.13,
+        "random_forest": 0.22,
+        "gradient_boosting": 0.21,
+        "xgboost": 0.16,
+        "lightgbm": 0.16
       }
     },
     "parametros": {
-      "ventana": 504,
+      "ventana": 252,
       "n_features": 52,
-      "n_modelos": 4,
-      "mejor_modelo": "lightgbm"
+      "n_modelos": "4-7 (según librerías instaladas)",
+      "mejor_modelo": "varía según ticker y entrenamiento"
     }
   },
   "sentiment": {
@@ -985,7 +994,7 @@ python tests/test_performance.py
 - **AUC: 58.6%** - Capacidad de discriminación del modelo
 - **Variabilidad**: Accuracy varía entre 53.1% (TSLA, META) y 63.3% (GOOGL) según el ticker
 - **Mejor rendimiento**: GOOGL (63.3%), AAPL (59.9%), JPM (58.5%)
-- **Nota**: Clasificación de dirección a 3 días (SUBIDA/BAJADA), umbral target 0.5%, ventana 504 días, 5 folds
+- **Nota**: Clasificación de dirección a 3 días (SUBIDA/BAJADA), umbral target 0.5%, ventana 252 días, 5 folds
 
 **Análisis de Sentimiento (NLP)**
 -  Ensemble de 4 modelos: FinBERT (40%), VADER (25%), Lexicón financiero (20%), TextBlob (15%)
@@ -1000,7 +1009,7 @@ python tests/test_performance.py
 -  **Throughput máximo**: 1.56 req/s
 
 **Cuellos de Botella Identificados**
-1. **ModelAgent**: Entrenamiento del ensemble de clasificadores (RF, GB, XGB, LightGBM)
+1. **ModelAgent**: Entrenamiento del ensemble de clasificadores (Linear, Ridge, RF, GB + XGB/LGB/LSTM opcionales)
 2. **MarketAgent**: Descarga de datos históricos desde Yahoo Finance (dependencia de API externa)
 
 ####  Gráficos y Visualizaciones
