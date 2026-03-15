@@ -1339,6 +1339,23 @@ Si encuentras un problema no listado aquí:
 
 ## Documentación Adicional
 
+-  **[docs/ANEXO_TECNICO_CALCULOS.md](docs/ANEXO_TECNICO_CALCULOS.md)** - Fórmulas y cálculos técnicos del sistema
+  - Indicadores técnicos (RSI, MACD, Bollinger Bands, etc.)
+  - Arquitectura del ensemble ML y ponderación por accuracy
+  - Métricas de clasificación y validación cruzada temporal
+  - Cálculos del SentimentAgent, RecommendationAgent y AlertAgent
+
+-  **[VALIDACION_ACADEMICA.md](VALIDACION_ACADEMICA.md)** - Validación académica del sistema
+  - Fundamentos teóricos y marco conceptual
+  - Estado del arte y comparativa con literatura
+  - Validación experimental y reproducibilidad
+  - Limitaciones y contribuciones originales
+
+-  **[INFORME_PRUEBAS.md](INFORME_PRUEBAS.md)** - Informe detallado de resultados de pruebas
+  - Resultados funcionales (30 tests, 100% éxito)
+  - Métricas de clasificación por ticker
+  - Análisis de rendimiento y cuellos de botella
+
 -  **[CONFIGURATION.md](CONFIGURATION.md)** - Configuración avanzada y deployment
   - Variables de entorno completas
   - Configuración de bases de datos (PostgreSQL, MySQL)
@@ -1347,13 +1364,6 @@ Si encuentras un problema no listado aquí:
   - Monitoring y logging
   - Backup y recuperación
 
--  **[check_setup.py](check_setup.py)** - Script de verificación de instalación
-  - Valida versión de Python
-  - Verifica dependencias instaladas
-  - Comprueba estructura del proyecto
-  - Valida configuración .env
-  - Verifica puertos disponibles
-
 -  **[EXAMPLES.md](EXAMPLES.md)** - Ejemplos prácticos de uso
   - Uso básico desde el Dashboard
   - Ejemplos con cURL, Python, JavaScript
@@ -1361,6 +1371,13 @@ Si encuentras un problema no listado aquí:
   - Scripts de automatización
   - Cliente Python completo
   - Mejores prácticas
+
+-  **[check_setup.py](check_setup.py)** - Script de verificación de instalación
+  - Valida versión de Python
+  - Verifica dependencias instaladas
+  - Comprueba estructura del proyecto
+  - Valida configuración .env
+  - Verifica puertos disponibles
 
 ## Alumna:
 
