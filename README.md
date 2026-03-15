@@ -7,7 +7,7 @@ Prototipo funcional de un sistema inteligente basado en agentes para el seguimie
 [![Streamlit](https://img.shields.io/badge/Streamlit-1.30-red.svg)](https://streamlit.io/)
 [![License](https://img.shields.io/badge/license-Academic-yellow.svg)](LICENSE)
 
----
+
 
 ## Tabla de Contenidos
 
@@ -33,7 +33,7 @@ Prototipo funcional de un sistema inteligente basado en agentes para el seguimie
 - [Autor](#autor)
 - [Licencia](#licencia)
 
----
+
 
 ## Descripción
 
@@ -684,7 +684,7 @@ password=SecurePass123!
 }
 ```
 
----
+
 
 ### Predicción y Análisis
 
@@ -812,7 +812,7 @@ password=SecurePass123!
 #### `GET /predict/{ticker}/sentiment` - Solo sentimiento
 **Response:** Retorna únicamente el objeto `sentiment` del ejemplo anterior
 
----
+
 
 ### Alertas
 
@@ -908,7 +908,7 @@ password=SecurePass123!
 
 **Response:** `204 No Content`
 
----
+
 
 ### Estado del Sistema
 
@@ -957,7 +957,7 @@ password=SecurePass123!
 - CORS configurado para frontend
 - Sin exposición de secretos en configuración pública
 
----
+
 
 ## Testing y Resultados
 
@@ -1066,7 +1066,7 @@ test_results/
 - Estadísticas de latencia (promedio, mín, máx)
 - Distribución de errores (si los hay)
 
----
+
 
 ## Troubleshooting
 
@@ -1088,7 +1088,7 @@ ls backend/
 uvicorn backend.main:app --reload
 ```
 
----
+
 
 ####  Error: "SECRET_KEY not configured"
 
@@ -1109,7 +1109,7 @@ python -c "import secrets; print(secrets.token_urlsafe(32))"
 # SECRET_KEY=la_clave_generada_aqui
 ```
 
----
+
 
 ####  Error: "Could not connect to database"
 
@@ -1128,7 +1128,7 @@ rm financial_tracker.db
 # Se recreará al iniciar el backend
 ```
 
----
+
 
 ####  Error: "Address already in use" (Puerto 8000 o 8501 ocupado)
 
@@ -1158,7 +1158,7 @@ taskkill /PID PID /F
 uvicorn backend.main:app --reload --port 8001
 ```
 
----
+
 
 ####  Error: "401 Unauthorized" en el dashboard
 
@@ -1169,7 +1169,7 @@ uvicorn backend.main:app --reload --port 8001
 2. Vuelve a iniciar sesión
 3. Si persiste, verifica que el SECRET_KEY sea el mismo en backend y que no haya cambiado
 
----
+
 
 ####  Error: "Failed to fetch data from Yahoo Finance"
 
@@ -1189,7 +1189,7 @@ ping yahoo.com
 # El sistema trabaja exclusivamente con datos reales de Yahoo Finance
 ```
 
----
+
 
 ####  Error: "ImportError: cannot import name 'FinBERT'"
 
@@ -1206,7 +1206,7 @@ pip install torch --index-url https://download.pytorch.org/whl/cpu
 
 **Nota:** El sistema funcionará sin estas dependencias, usando modelos de NLP más ligeros (VADER, TextBlob)
 
----
+
 
 ####  Dashboard muestra "Connection Error"
 
@@ -1225,7 +1225,7 @@ uvicorn backend.main:app --reload
 # 4. Recarga el dashboard
 ```
 
----
+
 
 ####  Advertencia: "UserWarning: Matplotlib is building the font cache"
 
@@ -1233,7 +1233,7 @@ uvicorn backend.main:app --reload
 
 **Solución:** Es normal, solo ocurre la primera vez. Espera unos segundos y se completará automáticamente.
 
----
+
 
 ####  Las predicciones parecen muy inexactas
 
@@ -1247,7 +1247,7 @@ uvicorn backend.main:app --reload
 - Evalúa las métricas (Accuracy, Precision, Recall) para entender el rendimiento
 - Una precision del 60.7% significa que cuando predice subida, acierta en ~6 de cada 10 casos
 
----
+
 
 ####  No recibo el email de recuperación de contraseña
 
@@ -1282,7 +1282,7 @@ SMTP_PASSWORD=tu_app_password  # No uses tu contraseña regular
 
 ** Nota:** Con Gmail necesitas una "Contraseña de Aplicación", no tu contraseña normal.
 
----
+
 
 ### Logs y Debugging
 
@@ -1309,7 +1309,7 @@ curl http://localhost:8000/config
 curl http://localhost:8000/health
 ```
 
----
+
 
 ### Obtener Ayuda
 
@@ -1335,7 +1335,7 @@ Si encuentras un problema no listado aquí:
 6. **Despliegue**: Containerización con Docker y pipeline CI/CD
 7. **Expansión geográfica**: Soporte para mercados internacionales y análisis en español
 
----
+
 
 ## Documentación Adicional
 
