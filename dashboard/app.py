@@ -685,6 +685,7 @@ def render_recommendation_card(recomendacion: Dict):
             </div>
         </div>
     """, unsafe_allow_html=True)
+    st.caption("_Herramienta de apoyo a la decisión, no como reemplazo del juicio del inversor._")
 
     # Detalles del análisis
     with st.expander("Ver análisis detallado"):
