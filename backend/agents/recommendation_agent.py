@@ -660,11 +660,14 @@ class RecommendationAgent:
         # Factor: Model prediction
         model_prediction = np.tanh(variacion_pct / 5)
 
-        # Factor: Prediction confidence
-        pred_conf_factor = prediction_confidence * 2 - 1
+        # Signo de la predicción: los factores de confianza deben reforzar la dirección
+        direction_sign = np.sign(variacion_pct) if variacion_pct != 0 else 1.0
 
-        # Factor: Ensemble agreement (simplificado)
-        ensemble_agreement = prediction_confidence * 0.8
+        # Factor: Prediction confidence (direccional: positivo si sube, negativo si baja)
+        pred_conf_factor = (prediction_confidence * 2 - 1) * direction_sign
+
+        # Factor: Ensemble agreement (direccional)
+        ensemble_agreement = prediction_confidence * 0.8 * direction_sign
 
         # Factor: Sentiment score
         sent_map = {"positivo": 0.7, "neutral": 0.0, "negativo": -0.7}
