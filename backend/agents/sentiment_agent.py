@@ -59,7 +59,7 @@ try:
     from transformers import pipeline, AutoModelForSequenceClassification, AutoTokenizer
     import torch
     TRANSFORMERS_AVAILABLE = True
-except ImportError:
+except (ImportError, OSError):
     TRANSFORMERS_AVAILABLE = False
 
 logger = logging.getLogger(__name__)
@@ -358,7 +358,7 @@ class SentimentAgent:
 
         Flujo de análisis:
         1. Verificar caché
-        2. Obtener noticias/textos (simulados en esta versión)
+        2. Obtener noticias reales de Yahoo Finance (yfinance)
         3. Analizar con cada modelo disponible
         4. Calcular ensemble ponderado
         5. Determinar categoría y confianza
@@ -762,6 +762,12 @@ class SentimentAgent:
                         else:
                             relevancia = 0.7
 
+                        # Extraer URL (yfinance 1.0: canonicalUrl o clickThroughUrl dentro de content)
+                        canonical = content.get('canonicalUrl', {})
+                        click_through = content.get('clickThroughUrl', {})
+                        url = (canonical.get('url', '') or click_through.get('url', '') or
+                               item.get('link', ''))
+
                         noticias.append({
                             'titulo': titulo,
                             'fecha': fecha.isoformat() if hasattr(fecha, 'isoformat') else str(fecha),
@@ -769,7 +775,7 @@ class SentimentAgent:
                             'contenido': contenido,
                             'relevancia': relevancia,
                             'entidades': [ticker],
-                            'url': item.get('link', ''),
+                            'url': url,
                             'es_noticia_real': True
                         })
 
