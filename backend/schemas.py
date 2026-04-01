@@ -195,10 +195,11 @@ class MetricaResponse(BaseModel):
     id: int
     ticker: str
     modelo: str
-    mse: Optional[float] = None
-    rmse: Optional[float] = None
-    mape: Optional[float] = None
-    mae: Optional[float] = None
+    accuracy: Optional[float] = None
+    precision: Optional[float] = None
+    recall: Optional[float] = None
+    f1: Optional[float] = None
+    auc: Optional[float] = None
     fecha: datetime
 
     class Config:

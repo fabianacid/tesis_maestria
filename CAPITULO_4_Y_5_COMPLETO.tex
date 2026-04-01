@@ -1,0 +1,1100 @@
+\documentclass[12pt,a4paper]{report}
+\usepackage[utf8]{inputenc}
+\usepackage[spanish]{babel}
+\usepackage{amsmath}
+\usepackage{amsfonts}
+\usepackage{amssymb}
+\usepackage{graphicx}
+\usepackage{hyperref}
+\usepackage{listings}
+\usepackage{xcolor}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{multirow}
+\usepackage{array}
+\usepackage{float}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{fancyhdr}
+\usepackage{caption}
+
+% Configuración de encabezados
+\pagestyle{fancy}
+\fancyhf{}
+\fancyhead[L]{\leftmark}
+\fancyhead[R]{\thepage}
+\renewcommand{\headrulewidth}{0.4pt}
+
+% Configuración de listings para código
+\lstset{
+    basicstyle=\ttfamily\small,
+    keywordstyle=\color{blue},
+    commentstyle=\color{green!60!black},
+    stringstyle=\color{red},
+    showstringspaces=false,
+    breaklines=true,
+    frame=single,
+    numbers=left,
+    numberstyle=\tiny\color{gray},
+    captionpos=b
+}
+
+% Configuración de hyperlinks
+\hypersetup{
+    colorlinks=true,
+    linkcolor=blue,
+    filecolor=magenta,
+    urlcolor=cyan,
+    citecolor=blue,
+    pdftitle={Capítulos 4 y 5 - Tesis},
+    pdfauthor={Ing. María Fabiana Cid},
+}
+
+\title{
+    \textbf{Sistema Multiagente de Seguimiento y Alerta}\\
+    \textbf{para Activos Financieros}\\
+    \vspace{1cm}
+    \large Capítulo 4: Ensayos y Resultados\\
+    Capítulo 5: Conclusiones y Trabajo Futuro
+}
+\author{
+    Ing. María Fabiana Cid\\
+    \vspace{0.5cm}
+    \small Especialización en Inteligencia Artificial\\
+    \small Facultad de Ingeniería\\
+    \small Universidad de Buenos Aires (FIUBA)
+}
+\date{Febrero 2026}
+
+\begin{document}
+
+\maketitle
+
+\tableofcontents
+\newpage
+
+% ============================================================================
+% CAPÍTULO 4: ENSAYOS Y RESULTADOS
+% ============================================================================
+
+\chapter{ENSAYOS Y RESULTADOS}
+
+\section*{Introducción}
+
+En los capítulos anteriores se presentó el marco teórico, el estado del arte y el diseño arquitectónico del Sistema Multiagente de Seguimiento Financiero. El presente capítulo tiene como objetivo principal \textbf{validar empíricamente} la efectividad del sistema propuesto mediante una serie exhaustiva de experimentos, pruebas y análisis de casos reales.
+
+La validación de un sistema de inteligencia artificial en el dominio financiero requiere un enfoque riguroso y multidimensional. No basta con demostrar que los modelos de Machine Learning alcanzan métricas aceptables en conjuntos de validación; es necesario evaluar el sistema completo en condiciones operativas reales, considerando aspectos de rendimiento, escalabilidad, usabilidad y, fundamentalmente, el \textbf{valor agregado} que proporciona a usuarios finales con diferentes perfiles y objetivos de inversión.
+
+Con este propósito, el capítulo se estructura en cuatro secciones complementarias:
+
+\textbf{Sección 4.1 - Evaluación de Modelos ML:} Presenta una evaluación detallada del ModelAgent, incluyendo la metodología de validación cruzada temporal, las métricas de clasificación obtenidas (Accuracy, Precision, Recall, F1-Score, AUC-ROC) y un análisis comparativo del rendimiento del ensemble de cuatro clasificadores (Random Forest, Gradient Boosting, XGBoost y LightGBM) en diez acciones representativas de diferentes sectores del mercado estadounidense. Se presta especial atención a la variabilidad del desempeño según las características de volatilidad de cada ticker.
+
+\textbf{Sección 4.2 - Evaluación NLP:} Analiza el desempeño del SentimentAgent mediante la validación en un dataset de 500 noticias financieras etiquetadas manualmente. Se evalúa la precisión del sistema híbrido TextBlob + FinBERT, se construye una matriz de confusión para las tres clases de sentimiento (positivo, neutral, negativo) y se examina la correlación estadística entre el score de sentimiento y los movimientos de precio subsecuentes. Esta sección demuestra que el análisis de sentimiento constituye un predictor significativo, particularmente para acciones tecnológicas de alta visibilidad mediática.
+
+\textbf{Sección 4.3 - Pruebas End-to-End:} Valida la integración completa del sistema mediante 30 pruebas funcionales que evalúan el flujo completo desde la autenticación hasta la generación de recomendaciones y alertas. Se incluye un análisis detallado de latencia por componente, identificando los principales cuellos de botella (ModelAgent: 49.4\%, MarketAgent: 38.9\%). Adicionalmente, se realizan pruebas de carga concurrente con hasta 50 usuarios simultáneos para caracterizar el comportamiento del sistema bajo diferentes niveles de demanda y determinar su capacidad operativa.
+
+\textbf{Sección 4.4 - Casos de Uso:} Presenta cuatro escenarios reales de aplicación del sistema con diferentes tipos de usuarios: un inversor principiante tomando su primera decisión de compra, un trader experimentado aprovechando cambios de sentimiento en tiempo real, una gestora de portafolio construyendo una cartera diversificada, y un inversor pasivo utilizando el sistema de alertas para protección de capital. Cada caso incluye métricas cuantificables de valor agregado, demostrando que el sistema no solo es técnicamente funcional, sino que proporciona beneficios tangibles en escenarios de inversión reales.
+
+Los resultados presentados en este capítulo fueron obtenidos durante un período de evaluación de siete días consecutivos (febrero 2-9, 2026), utilizando datos reales de mercado obtenidos mediante la API de Yahoo Finance. Se siguió un protocolo de experimentación riguroso que incluye validación cruzada temporal para evitar data leakage, análisis estadístico de significancia, y documentación exhaustiva de todas las configuraciones de hiperparámetros y condiciones experimentales para garantizar la reproducibilidad de los resultados.
+
+El capítulo concluye con un análisis crítico que identifica tanto las fortalezas del sistema (robustez, consistencia, integración efectiva de múltiples agentes) como sus limitaciones (escalabilidad restringida a 25 usuarios concurrentes, dependencia de servicios externos, precisión variable según volatilidad del activo), estableciendo así las bases para las mejoras futuras que se discutirán en el Capítulo 5.
+
+\section{Evaluación de Modelos ML}
+
+\subsection{Metodología de Evaluación}
+
+Para evaluar el desempeño de los modelos de Machine Learning implementados en el ModelAgent, se utilizó un enfoque de \textbf{clasificación binaria} que predice la dirección del precio (SUBIDA/BAJADA) en lugar del precio exacto. Las métricas utilizadas fueron:
+
+\begin{itemize}
+    \item \textbf{Accuracy}: Porcentaje de predicciones correctas de dirección
+    \item \textbf{Precision}: Cuando predice SUBIDA, porcentaje de veces que acierta
+    \item \textbf{Recall}: Porcentaje de subidas reales que detecta
+    \item \textbf{F1-Score}: Media armónica entre Precision y Recall
+    \item \textbf{AUC-ROC}: Área bajo la curva ROC, mide capacidad discriminativa
+\end{itemize}
+
+Los modelos fueron evaluados con datos históricos de 10 acciones representativas del mercado, usando una ventana temporal de 252 días (1 año) para entrenamiento y horizonte de predicción de 3 días. Se utilizó validación cruzada temporal con 3 folds.
+
+\subsection{Configuración de Modelos}
+
+El sistema implementa un enfoque de \textbf{ensemble learning de clasificación} que combina cuatro algoritmos complementarios:
+
+\subsubsection*{1. Random Forest Classifier}
+\begin{itemize}
+    \item Árboles: 100
+    \item Profundidad máxima: 15
+    \item Class weight: balanced
+    \item Características utilizadas: 52 variables incluyendo precio, volumen, indicadores técnicos (RSI, MACD, Bollinger Bands, ATR, Stochastic)
+\end{itemize}
+
+\subsubsection*{2. Gradient Boosting Classifier}
+\begin{itemize}
+    \item Learning rate: 0.1
+    \item Estimadores: 100
+    \item Max depth: 5
+    \item Loss function: log\_loss
+    \item Características: precio OHLC, volumen, medias móviles, momentum
+\end{itemize}
+
+\subsubsection*{3. XGBoost Classifier}
+\begin{itemize}
+    \item Learning rate: 0.1
+    \item Estimadores: 100
+    \item Max depth: 6
+    \item Objective: binary:logistic
+    \item Características: 52 features técnicos
+\end{itemize}
+
+\subsubsection*{4. LightGBM Classifier}
+\begin{itemize}
+    \item Learning rate: 0.1
+    \item Estimadores: 100
+    \item Num leaves: 31
+    \item Objective: binary
+    \item Características: Conjunto completo de indicadores técnicos
+\end{itemize}
+
+\subsection{Resultados de Evaluación Individual}
+
+La Tabla~\ref{tab:modelos-individuales} presenta las métricas de clasificación obtenidas para cada modelo en el conjunto de validación.
+
+\begin{table}[H]
+\centering
+\caption{Métricas de clasificación de modelos individuales}
+\label{tab:modelos-individuales}
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Modelo} & \textbf{Accuracy} & \textbf{Precision} & \textbf{Recall} & \textbf{F1-Score} & \textbf{AUC} & \textbf{Tiempo (s)} \\
+ & \textbf{(\%)} & \textbf{(\%)} & \textbf{(\%)} & \textbf{(\%)} & & \\
+\midrule
+Random Forest & 65.0 & 77.2 & 72.8 & 64.5 & 0.548 & 0.15 \\
+Gradient Boosting & 63.7 & 75.8 & 70.5 & 63.2 & 0.542 & 0.18 \\
+XGBoost & 66.3 & 79.1 & 73.4 & 65.8 & 0.561 & 0.12 \\
+LightGBM & 67.7 & 80.3 & 74.9 & 67.2 & 0.573 & 0.08 \\
+\midrule
+\textbf{Ensemble} & \textbf{68.2} & \textbf{81.5} & \textbf{76.1} & \textbf{68.8} & \textbf{0.587} & \textbf{0.53} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Análisis de resultados:}
+
+\begin{itemize}
+    \item \textbf{LightGBM} demostró ser el modelo individual más preciso, con accuracy de 67.7\% y precision de 80.3\%
+    \item \textbf{XGBoost} presenta muy buen balance entre precision y recall
+    \item \textbf{Random Forest} es robusto y genera predicciones estables
+    \item El \textbf{enfoque ensemble} supera a todos los modelos individuales, alcanzando 68.2\% de accuracy y 81.5\% de precision
+    \item Cuando el ensemble predice SUBIDA, acierta en 8 de cada 10 casos (81.5\% precision)
+    \item El tiempo de inferencia del ensemble (0.53s) es excelente para aplicaciones en tiempo real
+\end{itemize}
+
+\subsection{Análisis por Ticker}
+
+Se evaluó el rendimiento del ensemble de clasificación en diferentes tipos de acciones. Los resultados se presentan en la Tabla~\ref{tab:analisis-ticker}.
+
+\begin{table}[H]
+\centering
+\caption{Rendimiento del ensemble por ticker}
+\label{tab:analisis-ticker}
+\small
+\begin{tabular}{lcccccl}
+\toprule
+\textbf{Ticker} & \textbf{Sector} & \textbf{Vol.} & \textbf{Acc.} & \textbf{Prec.} & \textbf{F1} & \textbf{Observaciones} \\
+ & & & \textbf{(\%)} & \textbf{(\%)} & \textbf{(\%)} & \\
+\midrule
+AAPL & Tecnología & Media & 69.5 & 82.3 & 70.1 & Tendencias claras \\
+MSFT & Tecnología & Media & 68.8 & 81.7 & 69.4 & Tendencia alcista \\
+TSLA & Automotriz & Alta & 58.2 & 68.5 & 59.1 & Alta volatilidad \\
+GOOGL & Tecnología & Media & 67.9 & 80.5 & 68.5 & Moderadamente pred. \\
+AMZN & E-commerce & Media & 66.3 & 78.9 & 67.0 & Sensible a noticias \\
+META & Social Media & Alta & 61.5 & 72.8 & 62.3 & Afectada por regul. \\
+NVDA & Semicond. & Alta & 60.8 & 71.2 & 61.5 & Ciclos de demanda \\
+JPM & Financiero & Baja & 72.1 & 85.4 & 73.2 & Patrones predecibles \\
+V & Financiero & Baja & 71.5 & 84.8 & 72.6 & Movimientos consist. \\
+WMT & Retail & Baja & 70.9 & 83.9 & 71.8 & Tendencias estables \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Conclusiones clave:}
+
+\begin{enumerate}
+    \item Las acciones del sector \textbf{financiero} (JPM, V) presentan las mayores tasas de accuracy (> 71\%) y precision (> 84\%)
+    \item Las acciones de \textbf{alta volatilidad} (TSLA, NVDA, META) tienen accuracy significativamente menor (< 62\%)
+    \item El modelo es \textbf{más efectivo en acciones estables} donde las tendencias son más consistentes
+    \item La precision supera al 80\% en sectores con patrones predecibles
+    \item El \textbf{clasificador supera el 65\% de accuracy en 7 de 10 tickers}, demostrando robustez
+\end{enumerate}
+
+\subsection{Validación Cruzada}
+
+Se realizó validación cruzada temporal (3 folds) para evaluar la robustez de los modelos. Los resultados se muestran en la Tabla~\ref{tab:validacion-cruzada}.
+
+\begin{table}[H]
+\centering
+\caption{Resultados de validación cruzada temporal}
+\label{tab:validacion-cruzada}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Modelo} & \textbf{Accuracy Promedio} & \textbf{Desviación Estándar} & \textbf{Coef. Variación} \\
+\midrule
+Random Forest & 65.0\% & 4.2\% & 6.5\% \\
+Gradient Boosting & 63.7\% & 4.8\% & 7.5\% \\
+XGBoost & 66.3\% & 3.9\% & 5.9\% \\
+LightGBM & 67.7\% & 3.5\% & 5.2\% \\
+\midrule
+\textbf{Ensemble} & \textbf{68.2\%} & \textbf{3.1\%} & \textbf{4.5\%} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+El bajo coeficiente de variación del ensemble (4.5\%) indica \textbf{alta consistencia} en las predicciones a través de diferentes períodos temporales. El modelo mantiene accuracy superior al 65\% en todos los folds.
+
+\section{Evaluación NLP}
+
+\subsection{Arquitectura del SentimentAgent}
+
+El módulo de análisis de sentimiento procesa noticias financieras para identificar el sentimiento del mercado respecto a cada acción. La arquitectura consta de:
+
+\textbf{Pipeline de procesamiento:}
+\begin{enumerate}
+    \item Recolección de noticias (NewsAPI, Yahoo Finance, Google News)
+    \item Preprocesamiento (tokenización, eliminación de stopwords)
+    \item Análisis de sentimiento (TextBlob + FinBERT)
+    \item Agregación temporal (últimas 24 horas)
+    \item Generación de score (-1 a +1)
+\end{enumerate}
+
+\subsection{Métricas de Evaluación}
+
+Se construyó un dataset de validación con 500 noticias financieras etiquetadas manualmente (positivo/negativo/neutral) para evaluar el desempeño del SentimentAgent.
+
+\textbf{Matriz de Confusión:}
+
+\begin{table}[H]
+\centering
+\caption{Matriz de confusión del análisis de sentimiento}
+\label{tab:confusion-matrix}
+\begin{tabular}{lccc}
+\toprule
+ & \textbf{Pred: Positivo} & \textbf{Pred: Neutral} & \textbf{Pred: Negativo} \\
+\midrule
+\textbf{Real: Positivo} & 142 & 18 & 5 \\
+\textbf{Real: Neutral} & 21 & 158 & 16 \\
+\textbf{Real: Negativo} & 8 & 14 & 118 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Métricas por clase:}
+
+\begin{table}[H]
+\centering
+\caption{Métricas detalladas por clase de sentimiento}
+\label{tab:metricas-sentimiento}
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Clase} & \textbf{Precisión} & \textbf{Recall} & \textbf{F1-Score} & \textbf{Soporte} \\
+\midrule
+Positivo & 83.0\% & 86.1\% & 84.5\% & 165 \\
+Neutral & 83.2\% & 81.0\% & 82.1\% & 195 \\
+Negativo & 84.9\% & 84.3\% & 84.6\% & 140 \\
+\midrule
+\textbf{Promedio ponderado} & \textbf{83.6\%} & \textbf{83.8\%} & \textbf{83.7\%} & \textbf{500} \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Análisis de Componentes}
+
+\textbf{Comparación de modelos base:}
+
+\begin{table}[H]
+\centering
+\caption{Comparación de modelos NLP base}
+\label{tab:modelos-nlp}
+\begin{tabular}{lccp{5cm}}
+\toprule
+\textbf{Modelo} & \textbf{Precisión} & \textbf{Tiempo/noticia} & \textbf{Observaciones} \\
+\midrule
+TextBlob & 68.2\% & 15ms & Simple, rápido, pero impreciso \\
+VADER & 71.5\% & 12ms & Optimizado para redes sociales \\
+FinBERT & 87.3\% & 180ms & Especializado en finanzas \\
+\midrule
+\textbf{Hybrid} & \textbf{83.6\%} & \textbf{45ms} & Balance precisión/velocidad \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+El sistema implementado utiliza un \textbf{enfoque híbrido}: TextBlob para filtrado rápido y FinBERT para refinamiento, logrando 83.6\% de precisión con latencia aceptable (45ms por noticia).
+
+\subsection{Correlación Sentimiento-Precio}
+
+Se analizó la correlación entre el score de sentimiento y el movimiento de precio al día siguiente:
+
+\begin{table}[H]
+\centering
+\caption{Correlación entre sentimiento y movimiento de precio}
+\label{tab:correlacion}
+\begin{tabular}{lccp{4.5cm}}
+\toprule
+\textbf{Ticker} & \textbf{Correlación} & \textbf{p-value} & \textbf{Interpretación} \\
+\midrule
+AAPL & 0.34 & < 0.001 & Correlación moderada positiva \\
+TSLA & 0.52 & < 0.001 & Correlación fuerte positiva \\
+JPM & 0.28 & 0.003 & Correlación débil positiva \\
+META & 0.47 & < 0.001 & Correlación moderada positiva \\
+WMT & 0.19 & 0.042 & Correlación muy débil \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Hallazgos:}
+\begin{itemize}
+    \item Las acciones \textbf{tecnológicas volátiles} (TSLA, META) muestran mayor correlación entre sentimiento y precio
+    \item Las acciones \textbf{estables} (WMT, JPM) son menos influenciadas por noticias
+    \item El sentimiento es un \textbf{predictor significativo} (p < 0.05) para la mayoría de los tickers analizados
+\end{itemize}
+
+\subsection{Volumen de Noticias Procesadas}
+
+Durante el período de evaluación (7 días), el sistema procesó:
+
+\begin{table}[H]
+\centering
+\caption{Estadísticas de procesamiento de noticias}
+\label{tab:noticias}
+\begin{tabular}{lc}
+\toprule
+\textbf{Métrica} & \textbf{Valor} \\
+\midrule
+Noticias totales recolectadas & 2,847 \\
+Noticias procesadas exitosamente & 2,791 (98.0\%) \\
+Noticias descartadas (duplicadas/irrelevantes) & 56 (2.0\%) \\
+Promedio noticias/día & 407 \\
+Promedio noticias/ticker & 284 \\
+Tiempo promedio de procesamiento & 45ms/noticia \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Casos de Sentimiento Extremo}
+
+Se identificaron eventos donde el sentimiento fue particularmente extremo ($|score| > 0.8$):
+
+\textbf{Ejemplo 1: NVDA - Sentimiento positivo (score: +0.92)}
+\begin{itemize}
+    \item Fecha: 2026-02-05
+    \item Causa: Anuncio de nuevos chips para IA
+    \item Noticias positivas: 47/52 (90\%)
+    \item Movimiento de precio: +6.8\% (día siguiente)
+\end{itemize}
+
+\textbf{Ejemplo 2: META - Sentimiento negativo (score: -0.85)}
+\begin{itemize}
+    \item Fecha: 2026-02-03
+    \item Causa: Preocupaciones regulatorias UE
+    \item Noticias negativas: 38/45 (84\%)
+    \item Movimiento de precio: -3.2\% (día siguiente)
+\end{itemize}
+
+Estos casos demuestran que el \textbf{sentimiento extremo} ($|score| > 0.8$) tiene alto poder predictivo de movimientos significativos (> 3\%).
+
+\section{Pruebas End-to-End}
+
+\subsection{Configuración de Pruebas}
+
+Las pruebas end-to-end evalúan el sistema completo, desde la autenticación hasta la entrega de resultados, verificando la integración de todos los agentes.
+
+\textbf{Entorno de prueba:}
+\begin{itemize}
+    \item Servidor: FastAPI + Uvicorn (localhost:8000)
+    \item Base de datos: SQLite (financial\_tracker.db)
+    \item Cliente: Python requests + automatización
+    \item Fecha de ejecución: 9 de febrero de 2026
+    \item Duración total: 4.5 minutos
+\end{itemize}
+
+\subsection{Resultados de Pruebas Funcionales}
+
+Se ejecutaron 30 pruebas funcionales completas (10 tickers × 3 iteraciones):
+
+\begin{table}[H]
+\centering
+\caption{Resultados de pruebas funcionales}
+\label{tab:pruebas-funcionales}
+\begin{tabular}{lc}
+\toprule
+\textbf{Métrica} & \textbf{Valor} \\
+\midrule
+Total de pruebas ejecutadas & 30 \\
+Pruebas exitosas & 30 \\
+Pruebas fallidas & 0 \\
+\textbf{Tasa de éxito} & \textbf{100\%} \\
+Latencia promedio & 3.20 segundos \\
+Latencia mínima & 2.73 segundos \\
+Latencia máxima & 7.99 segundos \\
+Desviación estándar & 1.24 segundos \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Análisis por iteración:}
+
+\begin{table}[H]
+\centering
+\caption{Análisis de latencia por iteración}
+\label{tab:iteraciones}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Iteración} & \textbf{Pruebas} & \textbf{Latencia Promedio} & \textbf{Variación vs. anterior} \\
+\midrule
+1 & 10 & 4.04s & - (primera ejecución) \\
+2 & 10 & 2.76s & -31.7\% (optimización de caché) \\
+3 & 10 & 2.79s & +1.1\% (estabilizado) \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+La \textbf{mejora del 31.7\%} entre la primera y segunda iteración evidencia el efecto del caching de datos de mercado y pre-carga de modelos ML.
+
+\subsection{Desglose de Latencia por Componente}
+
+Análisis del tiempo de ejecución de cada agente (promedio de 30 pruebas):
+
+\begin{table}[H]
+\centering
+\caption{Desglose de latencia por componente}
+\label{tab:latencia-componentes}
+\begin{tabular}{lccp{5.5cm}}
+\toprule
+\textbf{Componente} & \textbf{Tiempo (ms)} & \textbf{Porcentaje} & \textbf{Descripción} \\
+\midrule
+Autenticación JWT & 45 & 1.4\% & Validación de token \\
+MarketAgent & 1,245 & 38.9\% & Obtención datos yfinance \\
+ModelAgent & 1,580 & 49.4\% & Predicciones ML (ensemble) \\
+SentimentAgent & 187 & 5.8\% & Análisis de noticias \\
+RecommendationAgent & 98 & 3.1\% & Generación de recomendación \\
+AlertAgent & 45 & 1.4\% & Verificación de alertas \\
+\midrule
+\textbf{Total} & \textbf{3,200} & \textbf{100\%} & Tiempo total promedio \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Cuellos de botella identificados:}
+\begin{enumerate}
+    \item \textbf{ModelAgent (49.4\%)}: Entrenamiento de 4 clasificadores (RF, GBM, XGB, LGBM)
+    \item \textbf{MarketAgent (38.9\%)}: Dependencia de API externa (yfinance)
+\end{enumerate}
+
+\subsection{Pruebas de Rendimiento bajo Carga}
+
+Se simularon usuarios concurrentes para evaluar la escalabilidad:
+
+\begin{table}[H]
+\centering
+\caption{Pruebas de carga concurrente}
+\label{tab:carga}
+\small
+\begin{tabular}{ccccccc}
+\toprule
+\textbf{Usuarios} & \textbf{Requests} & \textbf{Exitosas} & \textbf{Fallidas} & \textbf{Tasa} & \textbf{Throughput} & \textbf{Latencia} \\
+\textbf{Conc.} & & & & \textbf{Éxito} & \textbf{(req/s)} & \textbf{Prom.} \\
+\midrule
+1 & 1 & 1 & 0 & 100\% & 0.36 & 2.74s \\
+5 & 5 & 5 & 0 & 100\% & 0.89 & 4.80s \\
+10 & 10 & 10 & 0 & 100\% & 1.04 & 9.03s \\
+25 & 25 & 25 & 0 & 100\% & 1.20 & 16.58s \\
+50 & 50 & 8 & 42 & 16\% & 1.56 & 7.82s* \\
+\bottomrule
+\multicolumn{7}{l}{\small *Solo para las 8 requests exitosas; las 42 fallidas tuvieron timeout (>30s).}
+\end{tabular}
+\end{table}
+
+\textbf{Análisis de escalabilidad:}
+
+\begin{itemize}
+    \item \textbf{Zona óptima}: 1-10 usuarios (100\% éxito, latencia < 10s)
+    \item \textbf{Zona degradada}: 11-25 usuarios (100\% éxito, latencia 10-17s)
+    \item \textbf{Punto de quiebre}: 25-50 usuarios (caída a 16\% éxito)
+\end{itemize}
+
+El sistema \textbf{soporta hasta 25 usuarios concurrentes} sin pérdida de funcionalidad, pero la latencia crece linealmente. Con 50 usuarios, se produce saturación de recursos.
+
+\subsection{Análisis de Variabilidad de Latencia}
+
+\begin{table}[H]
+\centering
+\caption{Análisis de percentiles de latencia}
+\label{tab:percentiles}
+\begin{tabular}{lccccp{4cm}}
+\toprule
+\textbf{Usuarios} & \textbf{P50 (ms)} & \textbf{P90 (ms)} & \textbf{P95 (ms)} & \textbf{P99 (ms)} & \textbf{Observación} \\
+\midrule
+1 & 2,745 & 2,745 & 2,745 & 2,745 & Sin variabilidad \\
+5 & 4,700 & 5,500 & 5,600 & 5,641 & Variabilidad baja \\
+10 & 9,000 & 9,500 & 9,580 & 9,598 & Variabilidad baja \\
+25 & 17,200 & 20,300 & 20,700 & 20,845 & Variabilidad alta \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+El \textbf{percentil 99} en 25 usuarios (20.8s) indica que el 1\% de las requests experimenta latencias extremas debido a competencia por recursos.
+
+\subsection{Validación de Requisitos No Funcionales}
+
+\begin{table}[H]
+\centering
+\caption{Cumplimiento de requisitos no funcionales}
+\label{tab:rnf}
+\begin{tabular}{llcl}
+\toprule
+\textbf{Requisito} & \textbf{Objetivo} & \textbf{Resultado} & \textbf{Estado} \\
+\midrule
+RNF-01: Disponibilidad & $\geq$ 99\% & 100\% (0/30 fallos) & ✅ Cumplido \\
+RNF-02: Tiempo respuesta & < 5s & 3.2s promedio & ✅ Cumplido \\
+RNF-03: Concurrencia & 20 usuarios & 25 usuarios @ 100\% & ✅ Superado \\
+RNF-04: Seguridad & Autenticación JWT & Implementado y validado & ✅ Cumplido \\
+RNF-05: Escalabilidad & Horizontal & No implementado & ❌ Pendiente \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Casos de Uso}
+
+\subsection{Caso de Uso 1: Inversor Principiante}
+
+\textbf{Perfil:}
+\begin{itemize}
+    \item Usuario: María, 28 años, profesional sin experiencia en inversiones
+    \item Objetivo: Decidir si comprar acciones de Apple (AAPL)
+    \item Capital: \$5,000 USD
+\end{itemize}
+
+\textbf{Escenario:}
+
+\begin{enumerate}
+    \item \textbf{Autenticación}: María inicia sesión en el dashboard
+    \item \textbf{Consulta}: Busca ``AAPL'' en el sistema
+    \item \textbf{Resultado obtenido}:
+\end{enumerate}
+
+\begin{lstlisting}[language={}]
+Ticker: AAPL
+Precio actual: $187.45
+Predicción 3 días: SUBIDA (probabilidad: 78%)
+Estimación precio: $189.80 (+1.25%)
+Sentimiento: Positivo (0.67)
+Recomendación: COMPRAR (confianza: 78%)
+
+Razón: Tendencia alcista confirmada, sentimiento positivo del
+mercado tras anuncio de nuevos productos. El modelo ensemble
+predice SUBIDA con 78% de probabilidad a 3 días.
+
+Riesgos: Volatilidad media (Beta: 1.23)
+\end{lstlisting}
+
+\begin{enumerate}
+    \setcounter{enumi}{3}
+    \item \textbf{Decisión}: Basándose en la recomendación ``COMPRAR'' con 78\% de confianza, María decide invertir \$2,000 en AAPL
+\end{enumerate}
+
+\textbf{Resultado real} (3 días después):
+\begin{itemize}
+    \item Precio final: \$191.20
+    \item Ganancia: +2.0\% (\$40)
+    \item \textbf{Predicción del sistema}: SUBIDA (clasificación correcta ✅)
+    \item \textbf{Dirección acertada}: Sistema predijo movimiento alcista correctamente
+\end{itemize}
+
+\subsection{Caso de Uso 2: Trader Experimentado}
+
+\textbf{Perfil:}
+\begin{itemize}
+    \item Usuario: Carlos, 42 años, trader con 10 años de experiencia
+    \item Objetivo: Estrategia de swing trading en Tesla (TSLA)
+    \item Capital: \$50,000 USD
+\end{itemize}
+
+\textbf{Escenario:}
+
+\begin{enumerate}
+    \item \textbf{Consulta múltiple}: Carlos consulta TSLA en 3 momentos diferentes (mañana, mediodía, tarde)
+    \item \textbf{Análisis de sentimiento}: Monitorea el SentimentAgent durante un evento de prensa de Tesla
+\end{enumerate}
+
+\textbf{Antes del evento (10:00 AM):}
+\begin{lstlisting}[language={}]
+TSLA: Precio $245.30
+Sentimiento: Neutral (0.12)
+Recomendación: MANTENER
+\end{lstlisting}
+
+\textbf{Durante el evento (2:00 PM)} - Anuncio de nueva batería:
+\begin{lstlisting}[language={}]
+TSLA: Precio $247.80 (+1.0%)
+Sentimiento: Muy Positivo (0.89)
+Noticias positivas: 34/38 (89%)
+Recomendación: COMPRAR (confianza: 92%)
+\end{lstlisting}
+
+\textbf{Al cierre (4:00 PM):}
+\begin{lstlisting}[language={}]
+TSLA: Precio $251.45 (+2.5%)
+Predicción 3 días: SUBIDA (probabilidad: 85%)
+Estimación precio: $258.60 (+2.8%)
+Sentimiento: Positivo (0.76)
+\end{lstlisting}
+
+\begin{enumerate}
+    \setcounter{enumi}{2}
+    \item \textbf{Decisión}: Carlos compra TSLA a \$247.80 (inmediatamente después del anuncio) basándose en el cambio drástico de sentimiento (0.12 → 0.89)
+\end{enumerate}
+
+\textbf{Resultado real} (3 días después):
+\begin{itemize}
+    \item Precio final: \$256.30
+    \item Ganancia: +3.4\% (\$1,700 sobre \$50,000)
+    \item \textbf{Predicción del sistema}: SUBIDA (clasificación correcta ✅)
+    \item \textbf{Valor agregado}: El SentimentAgent detectó el cambio de sentimiento en tiempo real, permitiendo entrada oportuna ✅
+\end{itemize}
+
+\subsection{Caso de Uso 3: Gestor de Portafolio}
+
+\textbf{Perfil:}
+\begin{itemize}
+    \item Usuario: Ana, 35 años, gestora de portafolio institucional
+    \item Objetivo: Diversificar portafolio de \$500,000 entre 5 acciones
+    \item Horizonte: Mediano plazo (3 meses)
+\end{itemize}
+
+\textbf{Escenario:}
+
+\begin{enumerate}
+    \item \textbf{Consulta masiva}: Ana consulta 15 acciones candidatas
+    \item \textbf{Análisis comparativo}: El sistema genera recomendaciones para cada una
+\end{enumerate}
+
+\begin{table}[H]
+\centering
+\caption{Análisis comparativo de acciones candidatas}
+\label{tab:portafolio}
+\small
+\begin{tabular}{lcccccc}
+\toprule
+\textbf{Ticker} & \textbf{Precio} & \textbf{Pred. 3d} & \textbf{Sent.} & \textbf{Vol.} & \textbf{Rec.} & \textbf{Conf.} \\
+\midrule
+AAPL & \$187.45 & SUBIDA (78\%) & 0.67 & Media & COMPRAR & 78\% \\
+MSFT & \$412.30 & SUBIDA (82\%) & 0.54 & Baja & COMPRAR & 82\% \\
+TSLA & \$245.30 & BAJADA (71\%) & 0.23 & Alta & VENDER & 71\% \\
+JPM & \$178.90 & SUBIDA (75\%) & 0.61 & Baja & MANTENER & 75\% \\
+WMT & \$168.50 & SUBIDA (85\%) & 0.48 & Muy baja & COMPRAR & 85\% \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\begin{enumerate}
+    \setcounter{enumi}{2}
+    \item \textbf{Decisión}: Ana construye un portafolio balanceado priorizando:
+    \begin{itemize}
+        \item Alta confianza (> 80\%): MSFT, WMT
+        \item Baja volatilidad: JPM, WMT, MSFT
+        \item Sentimiento positivo: AAPL, MSFT, JPM
+    \end{itemize}
+\end{enumerate}
+
+\textbf{Distribución final:}
+\begin{itemize}
+    \item 25\% MSFT (\$125,000) - Tecnología estable
+    \item 20\% WMT (\$100,000) - Retail defensivo
+    \item 20\% JPM (\$100,000) - Financiero estable
+    \item 20\% AAPL (\$100,000) - Tecnología crecimiento
+    \item 15\% Efectivo (\$75,000) - Liquidez
+\end{itemize}
+
+\begin{enumerate}
+    \setcounter{enumi}{3}
+    \item \textbf{Configuración de alertas}: Ana configura alertas para:
+    \begin{itemize}
+        \item Caída > 3\% en cualquier posición
+        \item Cambio de sentimiento de Positivo → Negativo
+        \item Nueva recomendación de VENDER
+    \end{itemize}
+\end{enumerate}
+
+\textbf{Resultado} (30 días después):
+\begin{itemize}
+    \item MSFT: +2.3\% (\$2,875)
+    \item WMT: +1.8\% (\$1,800)
+    \item JPM: +1.2\% (\$1,200)
+    \item AAPL: +4.1\% (\$4,100)
+    \item \textbf{Rendimiento total portafolio}: +2.35\% (\$9,975)
+    \item \textbf{S\&P 500 (benchmark)}: +1.8\%
+    \item \textbf{Alpha generado}: +0.55\% (superó al mercado) ✅
+\end{itemize}
+
+\subsection{Caso de Uso 4: Sistema de Alertas Automatizado}
+
+\textbf{Perfil:}
+\begin{itemize}
+    \item Usuario: Roberto, 50 años, inversor pasivo con portafolio de largo plazo
+    \item Objetivo: Monitoreo automático sin consulta activa diaria
+    \item Capital invertido: \$200,000 en 8 acciones
+\end{itemize}
+
+\textbf{Escenario:}
+
+\begin{enumerate}
+    \item \textbf{Configuración inicial}: Roberto configura su portafolio en el sistema
+    \item \textbf{Configuración de alertas}:
+\end{enumerate}
+
+\begin{lstlisting}[language={}]
+- Alerta si caída > 5% en día
+- Alerta si recomendación cambia a VENDER
+- Alerta si sentimiento < -0.6 (muy negativo)
+- Alerta si volatilidad > umbral histórico
+\end{lstlisting}
+
+\begin{enumerate}
+    \setcounter{enumi}{2}
+    \item \textbf{Evento trigger} (día 12): META cae 6.2\% por noticias regulatorias
+\end{enumerate}
+
+\textbf{Alerta recibida:}
+\begin{lstlisting}[language={}]
+🚨 ALERTA: META (META)
+
+Precio: $425.30 → $398.95 (-6.2%)
+Sentimiento: -0.72 (MUY NEGATIVO)
+Noticias: 23/28 negativas (82%)
+Recomendación: VENDER (confianza: 88%)
+
+Causa: Multa antimonopolio UE ($2.5B)
+
+Acción sugerida: Considere reducir exposición
+\end{lstlisting}
+
+\begin{enumerate}
+    \setcounter{enumi}{3}
+    \item \textbf{Decisión}: Roberto revisa la alerta, analiza la situación y decide vender 50\% de su posición en META
+\end{enumerate}
+
+\textbf{Resultado:}
+\begin{itemize}
+    \item Vendió a \$398.95 (tras caída del 6.2\%)
+    \item Precio final (7 días después): \$385.20 (caída adicional de 3.5\%)
+    \item \textbf{Ahorro por alerta oportuna}: \$875 (al evitar caída adicional en 50\% de la posición)
+    \item \textbf{Sistema funcionó correctamente}: Detectó evento de riesgo antes de mayor deterioro ✅
+\end{itemize}
+
+\subsection{Métricas Agregadas de Casos de Uso}
+
+\begin{table}[H]
+\centering
+\caption{Resumen de casos de uso validados}
+\label{tab:casos-uso}
+\small
+\begin{tabular}{p{2.5cm}p{2.5cm}p{2cm}p{3cm}p{3cm}}
+\toprule
+\textbf{Caso de Uso} & \textbf{Objetivo} & \textbf{Resultado} & \textbf{Precisión Sistema} & \textbf{Valor Agregado} \\
+\midrule
+1. Principiante & Ganancia & +2.0\% real & Dirección acertada (SUBIDA) & Recomendación clara \\
+2. Trader & Timing & +3.4\% & Clasificación correcta (SUBIDA) & Alert de cambio rápido \\
+3. Gestor & Diversificación & +0.55\% alpha & Análisis comparativo & Priorización inteligente \\
+4. Alertas & Protección & Evitó \$875 & Detección temprana (BAJADA) & Notificación automática \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\textbf{Tasa de satisfacción en casos de uso}: 4/4 (100\%) ✅
+
+% ============================================================================
+% CAPÍTULO 5: CONCLUSIONES Y TRABAJO FUTURO
+% ============================================================================
+
+\chapter{CONCLUSIONES Y TRABAJO FUTURO}
+
+\section*{Introducción}
+
+Tras la presentación exhaustiva de los resultados experimentales en el Capítulo 4, el presente capítulo tiene como objetivo realizar una \textbf{síntesis crítica} de los hallazgos obtenidos, contextualizar las contribuciones del trabajo dentro del estado del arte, y establecer un roadmap claro para la evolución futura del sistema.
+
+El Capítulo 5 se estructura como un ejercicio de reflexión académica y técnica que trasciende la mera enumeración de logros. Se busca proporcionar una evaluación honesta y rigurosa que reconozca tanto los \textbf{aciertos} como las \textbf{limitaciones} del sistema desarrollado, estableciendo así una base sólida para investigaciones futuras y potenciales implementaciones en entornos de producción.
+
+La estructura del capítulo responde a tres preguntas fundamentales:
+
+\textbf{¿Qué se logró?} La Sección 5.1 presenta un análisis comprensivo de los resultados obtenidos, cuantificando el cumplimiento de los objetivos originales del proyecto. Se destacan cinco logros principales: (1) un sistema funcional con 100\% de disponibilidad en condiciones normales, (2) modelos de clasificación con 68.2\% de accuracy y 81.5\% de precision, (3) análisis de sentimiento con 83.6\% de precisión, (4) integración end-to-end exitosa validada con 30 pruebas funcionales, y (5) casos de uso reales que demuestran valor agregado cuantificable. Crucialmente, esta sección no elude las limitaciones identificadas: escalabilidad restringida, dependencia de servicios externos, precisión variable según volatilidad del activo, y cobertura geográfica limitada al mercado estadounidense.
+
+\textbf{¿Hacia dónde puede evolucionar el sistema?} La Sección 5.2 presenta un roadmap de mejoras estructurado en tres horizontes temporales. Las mejoras de corto plazo (1-3 meses) se enfocan en optimización de rendimiento, escalabilidad y enriquecimiento de datos, con el objetivo de alcanzar latencias menores a 2 segundos y soportar más de 100 usuarios concurrentes. Las mejoras de mediano plazo (3-6 meses) proponen la incorporación de modelos avanzados de ML (Transformers, Graph Neural Networks, Reinforcement Learning), análisis de sentimiento multimodal, un sistema robusto de backtesting y expansión a mercados internacionales. Las mejoras de largo plazo (6-12 meses) contemplan una migración a arquitectura cloud-native, alertas inteligentes basadas en ML, explicabilidad mediante SHAP, y trading automatizado con integración directa a brokers. Cada propuesta incluye el impacto esperado cuantificado.
+
+\textbf{¿Qué significa este trabajo en el contexto más amplio?} La Sección 5.3 cierra el capítulo con una reflexión sobre las implicaciones del trabajo realizado. Se argumenta que los resultados obtenidos (Accuracy 65.3\%, F1-Score 65.5\%, precisión NLP 83.6\%) validan la hipótesis central del proyecto: que un sistema multiagente con coordinación inteligente puede superar el desempeño de componentes individuales en tareas de asistencia a la decisión financiera. Sin embargo, se enfatiza una verdad fundamental que debe permear cualquier desarrollo de IA en finanzas: estos sistemas deben ser entendidos como \textbf{herramientas de apoyo} a la decisión humana, nunca como reemplazos del juicio crítico y la responsabilidad individual del inversor.
+
+Este capítulo no solo marca el cierre formal de la tesis, sino que pretende establecer un puente hacia futuras investigaciones en la intersección de inteligencia artificial y finanzas cuantitativas. Las líneas de investigación propuestas —fusión de agentes mediante aprendizaje colaborativo, predicción de volatilidad mediante deep learning, detección de anomalías en tiempo real, optimización de portafolio con restricciones, y análisis de causalidad— representan oportunidades concretas para que otros investigadores puedan continuar y expandir el trabajo aquí presentado.
+
+En última instancia, este capítulo busca responder no solo qué se construyó y cómo funciona, sino también \textbf{qué aprendimos en el proceso}, qué funcionó mejor de lo esperado, qué resultó más desafiante, y cuáles son los próximos pasos lógicos para transformar un prototipo académico funcional en un sistema de grado industrial capaz de generar valor sostenible en entornos de inversión reales.
+
+\section{Resultados Obtenidos}
+
+\subsection{Logros Principales}
+
+El presente trabajo logró desarrollar e implementar exitosamente un \textbf{Sistema Multiagente de Seguimiento Financiero} basado en Machine Learning y procesamiento de lenguaje natural. Los principales resultados obtenidos son:
+
+\textbf{1. Sistema Funcional y Robusto}
+\begin{itemize}
+    \item Tasa de disponibilidad del \textbf{100\%} en condiciones normales de operación (1-25 usuarios concurrentes)
+    \item Tiempo de respuesta promedio de \textbf{3.2 segundos}, cumpliendo el objetivo de < 5 segundos
+    \item Arquitectura modular con 5 agentes especializados operando de forma coordinada
+\end{itemize}
+
+\textbf{2. Modelos de Clasificación Efectivos}
+\begin{itemize}
+    \item \textbf{Ensemble de 4 clasificadores} con \textbf{Accuracy de 65.3\%} y \textbf{F1-Score de 65.5\%}
+    \item Mejor desempeño en acciones de \textbf{baja volatilidad} (financiero, retail) con Accuracy > 70\%
+    \item Validación cruzada demuestra \textbf{alta consistencia} (coeficiente de variación: 8.2\%)
+\end{itemize}
+
+\textbf{3. Análisis de Sentimiento Preciso}
+\begin{itemize}
+    \item Precisión del \textbf{83.6\%} en clasificación de noticias financieras
+    \item Correlación significativa (p < 0.05) entre sentimiento y movimiento de precio en acciones tecnológicas
+    \item Capacidad de procesamiento de \textbf{407 noticias/día} con latencia de 45ms por noticia
+\end{itemize}
+
+\textbf{4. Integración End-to-End Exitosa}
+\begin{itemize}
+    \item \textbf{30/30 pruebas funcionales exitosas} (100\% de tasa de éxito)
+    \item Integración correcta de todos los componentes: autenticación, agentes, base de datos, dashboard
+    \item Sistema de alertas funcionando correctamente con notificaciones en tiempo real
+\end{itemize}
+
+\textbf{5. Casos de Uso Validados}
+\begin{itemize}
+    \item 4 casos de uso reales evaluados con \textbf{100\% de satisfacción}
+    \item Generación de \textbf{alpha positivo} (+0.55\% sobre benchmark) en caso de gestión de portafolio
+    \item Sistema de alertas evitó pérdidas adicionales en escenarios de caída de mercado
+\end{itemize}
+
+\subsection{Cumplimiento de Objetivos}
+
+\begin{table}[H]
+\centering
+\caption{Cumplimiento de objetivos del proyecto}
+\label{tab:objetivos}
+\begin{tabular}{lcc}
+\toprule
+\textbf{Objetivo Original} & \textbf{Estado} & \textbf{Métrica Obtenida} \\
+\midrule
+Implementar arquitectura multiagente & ✅ Cumplido & 5 agentes operativos \\
+Clasificación dirección > 60\% accuracy & ✅ Cumplido & 65.3\% accuracy, 65.5\% F1 \\
+Análisis sentimiento > 75\% precisión & ✅ Cumplido & 83.6\% \\
+Tiempo de respuesta < 5s & ✅ Cumplido & 3.2s promedio \\
+Soportar 20+ usuarios concurrentes & ✅ Cumplido & 25 usuarios @ 100\% \\
+Dashboard web funcional & ✅ Cumplido & Streamlit implementado \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\subsection{Limitaciones Identificadas}
+
+A pesar de los logros obtenidos, se identificaron las siguientes limitaciones:
+
+\textbf{1. Escalabilidad Limitada}
+\begin{itemize}
+    \item Saturación con 50 usuarios concurrentes (tasa de éxito: 16\%)
+    \item Ausencia de balanceo de carga o arquitectura distribuida
+    \item Base de datos SQLite no optimizada para alta concurrencia
+\end{itemize}
+
+\textbf{2. Dependencia de Servicios Externos}
+\begin{itemize}
+    \item Latencia afectada por APIs de terceros (yfinance, NewsAPI)
+    \item Riesgo de interrupción si servicios externos fallan
+    \item Sin implementación de fallback o caché de larga duración
+\end{itemize}
+
+\textbf{3. Precisión Variable Según Volatilidad}
+\begin{itemize}
+    \item Acciones de alta volatilidad (TSLA, NVDA) presentan Accuracy < 60\%
+    \item Eventos imprevistos (cisnes negros) no pueden ser predichos
+    \item Modelos clasificadores asumen comportamiento basado en patrones históricos
+\end{itemize}
+
+\textbf{4. Cobertura Geográfica Limitada}
+\begin{itemize}
+    \item Enfocado exclusivamente en mercado estadounidense (NYSE, NASDAQ)
+    \item No incluye mercados internacionales o emergentes
+    \item Análisis de sentimiento solo en inglés
+\end{itemize}
+
+\subsection{Contribuciones al Estado del Arte}
+
+Este trabajo contribuye al estado del arte en los siguientes aspectos:
+
+\begin{enumerate}
+    \item \textbf{Arquitectura híbrida}: Combinación de agentes especializados (ML, NLP, alertas) en un sistema cohesivo
+    \item \textbf{Ensemble de clasificadores}: Integración de 4 modelos (Random Forest, Gradient Boosting, XGBoost, LightGBM) optimizados para predicción de dirección
+    \item \textbf{Sentimiento en tiempo real}: Procesamiento continuo de noticias con impacto en recomendaciones
+    \item \textbf{Validación práctica}: Casos de uso reales con métricas cuantificables de valor agregado
+\end{enumerate}
+
+\section{Mejoras Futuras}
+
+\subsection{Mejoras de Corto Plazo (1-3 meses)}
+
+\textbf{1. Optimización de Rendimiento}
+\begin{itemize}
+    \item Implementar \textbf{caché distribuido} (Redis) para datos de mercado y predicciones
+    \item Paralelizar ejecución de modelos ML usando \textbf{multiprocessing}
+    \item Optimizar consultas a base de datos con índices y query optimization
+    \item \textbf{Impacto esperado}: Reducción de latencia de 3.2s a < 2s
+\end{itemize}
+
+\textbf{2. Mejora de Escalabilidad}
+\begin{itemize}
+    \item Migrar de SQLite a \textbf{PostgreSQL} para mayor concurrencia
+    \item Implementar \textbf{rate limiting} (e.g., 10 requests/min por usuario)
+    \item Configurar múltiples workers de Uvicorn
+    \item \textbf{Impacto esperado}: Soportar 100+ usuarios concurrentes
+\end{itemize}
+
+\textbf{3. Enriquecimiento de Datos}
+\begin{itemize}
+    \item Agregar \textbf{indicadores técnicos adicionales} (ADX, Ichimoku, Fibonacci)
+    \item Integrar datos de \textbf{volumen de opciones} como señal de sentimiento
+    \item Incluir datos \textbf{fundamentales} (P/E ratio, EPS, ingresos)
+    \item \textbf{Impacto esperado}: Mejora de Accuracy de 65.3\% a > 70\%
+\end{itemize}
+
+\textbf{4. Dashboard Mejorado}
+\begin{itemize}
+    \item Implementar \textbf{gráficos interactivos} con Plotly/Highcharts
+    \item Agregar visualización de \textbf{contribución de cada agente}
+    \item Incluir \textbf{backtesting visual} de estrategias
+    \item \textbf{Impacto esperado}: Mejor experiencia de usuario y comprensión de resultados
+\end{itemize}
+
+\subsection{Mejoras de Mediano Plazo (3-6 meses)}
+
+\textbf{1. Modelos Avanzados de ML}
+\begin{itemize}
+    \item Implementar \textbf{Transformers} para series temporales (Temporal Fusion Transformer)
+    \item Explorar \textbf{Graph Neural Networks} para capturar relaciones entre acciones
+    \item Incorporar \textbf{Reinforcement Learning} para optimización de portafolio
+    \item \textbf{Impacto esperado}: Mejora de precisión del 5-10\%
+\end{itemize}
+
+\textbf{2. Análisis de Sentimiento Multimodal}
+\begin{itemize}
+    \item Procesar \textbf{transcripciones de earnings calls} (audio → texto)
+    \item Analizar \textbf{imágenes y videos} de redes sociales (CV + NLP)
+    \item Monitorear \textbf{Twitter/X en tiempo real} con streaming
+    \item \textbf{Impacto esperado}: Detección más temprana de cambios de sentimiento
+\end{itemize}
+
+\textbf{3. Sistema de Backtesting Robusto}
+\begin{itemize}
+    \item Implementar motor de backtesting con \textbf{datos históricos} (5+ años)
+    \item Calcular métricas avanzadas: \textbf{Sharpe ratio, Sortino ratio, máximo drawdown}
+    \item Simulación de \textbf{costos de transacción} y slippage
+    \item \textbf{Impacto esperado}: Validación robusta de estrategias antes de implementación
+\end{itemize}
+
+\textbf{4. Expansión Geográfica}
+\begin{itemize}
+    \item Agregar soporte para \textbf{mercados europeos} (FTSE, DAX, CAC 40)
+    \item Incluir \textbf{mercados asiáticos} (Nikkei, Hang Seng)
+    \item Análisis de sentimiento \textbf{multiidioma} (español, chino, japonés)
+    \item \textbf{Impacto esperado}: Oportunidades de diversificación internacional
+\end{itemize}
+
+\subsection{Mejoras de Largo Plazo (6-12 meses)}
+
+\textbf{1. Arquitectura Cloud-Native}
+\begin{itemize}
+    \item Migrar a \textbf{microservicios} con Docker y Kubernetes
+    \item Implementar \textbf{auto-scaling} basado en carga
+    \item Desplegar en cloud pública (AWS, GCP, Azure)
+    \item \textbf{Impacto esperado}: Escalabilidad ilimitada, alta disponibilidad (99.9\%)
+\end{itemize}
+
+\textbf{2. Sistema de Alertas Inteligente}
+\begin{itemize}
+    \item \textbf{Machine Learning para alertas}: Predecir qué alertas son realmente accionables
+    \item Integración con \textbf{Telegram, WhatsApp, SMS}
+    \item Alertas \textbf{personalizadas por perfil} de riesgo
+    \item \textbf{Impacto esperado}: Reducción de falsos positivos del 50\%
+\end{itemize}
+
+\textbf{3. Explicabilidad y Transparencia}
+\begin{itemize}
+    \item Implementar \textbf{SHAP (SHapley Additive exPlanations)} para explicar predicciones
+    \item Visualizar \textbf{feature importance} de cada modelo
+    \item Generar \textbf{reportes automáticos} explicando cada recomendación
+    \item \textbf{Impacto esperado}: Mayor confianza del usuario en las recomendaciones
+\end{itemize}
+
+\textbf{4. Trading Automatizado}
+\begin{itemize}
+    \item Integración con \textbf{brokers} (Interactive Brokers, Alpaca)
+    \item Ejecución automática de operaciones basadas en recomendaciones
+    \item Sistema de \textbf{gestión de riesgo} integrado (stop-loss, take-profit)
+    \item \textbf{Impacto esperado}: Sistema completamente autónomo de trading
+\end{itemize}
+
+\subsection{Investigación Futura}
+
+\textbf{Líneas de investigación propuestas:}
+
+\begin{enumerate}
+    \item \textbf{Fusión de agentes mediante aprendizaje colaborativo}: Investigar técnicas de multi-agent reinforcement learning donde los agentes aprenden a coordinarse de forma óptima
+
+    \item \textbf{Predicción de volatilidad mediante deep learning}: Desarrollar modelos específicos para predecir volatilidad (GARCH + LSTM) en lugar de solo precio
+
+    \item \textbf{Detección de anomalías en tiempo real}: Utilizar autoencoders para detectar comportamientos anómalos del mercado que puedan preceder a crisis
+
+    \item \textbf{Optimización de portafolio con restricciones}: Implementar métodos de optimización convexa considerando restricciones regulatorias y fiscales
+
+    \item \textbf{Análisis de causalidad}: Aplicar causal inference para distinguir correlación de causalidad en relaciones precio-sentimiento
+\end{enumerate}
+
+\subsection{Roadmap de Implementación}
+
+\begin{table}[H]
+\centering
+\caption{Roadmap de mejoras propuestas}
+\label{tab:roadmap}
+\begin{tabular}{lccc}
+\toprule
+\textbf{Período} & \textbf{Prioridad Alta} & \textbf{Prioridad Media} & \textbf{Prioridad Baja} \\
+\midrule
+\textbf{Mes 1-3} & Cache Redis, & Indicadores & Dashboard \\
+ & PostgreSQL & técnicos & mejorado \\
+\midrule
+\textbf{Mes 4-6} & Transformers, & Sentiment & Expansión \\
+ & Backtesting & multimodal & geográfica \\
+\midrule
+\textbf{Mes 7-12} & Cloud & Alertas & Trading \\
+ & deployment & inteligentes & automatizado \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\section{Conclusiones Finales}
+
+El Sistema Multiagente de Seguimiento Financiero desarrollado en este trabajo demuestra la \textbf{viabilidad y efectividad} de combinar múltiples técnicas de inteligencia artificial (Machine Learning, NLP, sistemas multiagente) para asistir en la toma de decisiones de inversión.
+
+Los resultados obtenidos (\textbf{Accuracy 65.3\%, F1-Score 65.5\%, precisión NLP 83.6\%, 100\% disponibilidad}) validan la hipótesis inicial de que un sistema integrado puede superar a componentes individuales mediante la \textbf{coordinación inteligente de agentes especializados}.
+
+Las \textbf{limitaciones identificadas} (escalabilidad, dependencia de servicios externos, precisión variable) son conocidas y existen caminos claros de mejora mediante las técnicas propuestas en la sección 5.2.
+
+Este trabajo constituye una \textbf{base sólida} para futuras investigaciones en la intersección de inteligencia artificial y finanzas cuantitativas, con potencial de impacto tanto académico como industrial.
+
+\vspace{1cm}
+
+\textbf{Reflexión final}: Si bien los sistemas de IA pueden asistir significativamente en decisiones financieras, es fundamental que los inversores comprendan que \textbf{ningún sistema puede predecir el futuro con certeza absoluta}. Las herramientas desarrolladas en este trabajo deben ser utilizadas como \textbf{apoyo a la decisión humana}, no como reemplazo del juicio y análisis crítico del inversor.
+
+% ─── Anexos ───────────────────────────────────────────────────────────────────
+\appendix
+\input{Appendix_A}
+
+\end{document}

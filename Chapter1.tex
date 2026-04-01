@@ -1,0 +1,325 @@
+% Chapter 1
+
+% Chapter 1
+
+  \chapter{Introducción general}
+
+  \label{Chapter1}
+  \label{IntroGeneral}
+
+  El presente capítulo introduce el desarrollo de un sistema multiagente inteligente
+  orientado al seguimiento y alerta de activos financieros. Se destaca la
+  transformación del sector financiero impulsada por la digitalización y la
+  inteligencia artificial (IA), en el que el acceso rápido a la información es clave
+  para la toma de decisiones. Las soluciones actuales, como Bloomberg
+  \parencite{gratton2024bloomberg,king2016terminal} o FinBERT
+  \parencite{araci2019finbert,liu2020finbert,huang2021finbert}, resultan costosas y
+  poco accesibles para inversionistas minoristas.
+
+  El trabajo realizado busca reducir la brecha tecnológica y ofrecer una herramienta
+  autónoma, modular y de bajo costo que integre análisis predictivo, procesamiento de
+  noticias y generación de alertas. Su arquitectura cooperativa de agentes permite
+  escalabilidad y personalización del sistema. El impacto esperado es la
+  democratización del acceso a la información financiera y la promoción de decisiones
+  más informadas y equitativas.
+
+  %----------------------------------------------------------------------------------------   
+
+  \newcommand{\keyword}[1]{\textbf{#1}}
+  \newcommand{\tabhead}[1]{\textbf{#1}}
+  \newcommand{\code}[1]{\texttt{#1}}
+  \newcommand{\file}[1]{\texttt{\bfseries#1}}
+  \newcommand{\option}[1]{\texttt{\itshape#1}}
+  \newcommand{\grados}{$^{\circ}$}
+
+  %----------------------------------------------------------------------------------------   
+
+  \section{Contexto financiero y tecnológico}
+
+  El ecosistema financiero actual atraviesa un proceso de transformación acelerado
+  impulsado por la digitalización, la disponibilidad masiva de datos y los avances en
+  IA. En este entorno, el acceso oportuno a la información y la capacidad de
+  procesarla en tiempo real se han convertido en factores críticos para la toma de
+  decisiones de inversión.
+
+  Al mismo tiempo, los mercados financieros presentan alta volatilidad, asimetrías
+  informativas y reacciones tardías ante eventos globales o regionales. Esta dinámica
+  evidencia la necesidad de contar con sistemas que analicen datos en tiempo real,
+  integren fuentes heterogéneas y ofrezcan señales predictivas para anticipar cambios
+  del mercado. Los sistemas multiagentes permiten distribuir tareas entre componentes
+  especializados (por ejemplo, agentes de mercado, predicción, noticias o usuario),
+  mejorando la velocidad y precisión de las decisiones.
+
+  En particular, la incorporación de modelos de \textit{machine learning} para la
+  clasificación de movimientos de precios y de modelos de lenguaje para el análisis
+  de sentimiento en noticias financieras representa una tendencia consolidada en la
+  literatura reciente \parencite{araci2019finbert,lstm2022financial}. Sin embargo,
+  la integración de ambos enfoques en una única plataforma accesible, modular y
+  automatizada sigue siendo un desafío abierto, especialmente para usuarios
+  minoristas o instituciones financieras de menor escala.
+
+  Como se muestra en la figura~\ref{fig:flujo_informacion_financiera}, el sistema
+  transforma datos financieros en alertas personalizadas.
+
+  \begin{figure}[H]
+      \centering
+      \vspace{-1em}
+      \captionsetup{skip=10pt}
+      \includegraphics[width=0.9\textwidth]{Figures/Figura1.png}
+      \vspace{-1.2em}
+      \caption{Flujo de información financiera.}
+      \label{fig:flujo_informacion_financiera}
+  \end{figure}
+  \vspace{-1em}
+
+  %----------------------------------------------------------------------------------------   
+
+  \section{Estado del arte}
+
+  Diversas soluciones comerciales y académicas han abordado el desafío del análisis
+  financiero automatizado mediante el uso de tecnologías avanzadas de IA y
+  procesamiento de datos. Entre las plataformas comerciales más destacadas se
+  encuentra Bloomberg Terminal, una herramienta ampliamente utilizada por
+  instituciones financieras que centraliza información de mercado en tiempo real,
+  ofrece indicadores económicos, métricas de riesgo y herramientas analíticas para
+  la toma de decisiones estratégicas. Sin embargo, su costo elevado y su diseño
+  orientado a usuarios expertos la convierten en una solución inaccesible para la
+  mayoría de los inversionistas minoristas.
+
+  En el ámbito académico y tecnológico se han desarrollado modelos y arquitecturas
+  específicas para el análisis de información financiera. En particular, los modelos
+  de lenguaje entrenados en dominios financieros, como FinBERT, aplican técnicas de
+  \textit{Natural Language Processing} (NLP) para interpretar el sentimiento presente
+  en noticias, reportes corporativos y publicaciones en redes sociales. Este tipo de
+  análisis permite cuantificar el tono de la información (positivo, negativo o neutro)        
+  y utilizarlo como variable predictiva del comportamiento del mercado.
+
+  Diversos trabajos amplían el análisis de sentimiento en el ámbito financiero. Por
+  ejemplo, Amola \parencite{amola2025sentiment} propone un enfoque híbrido que
+  integra el análisis de sentimiento de noticias con modelos cuantitativos
+  tradicionales. De manera complementaria, estudios más recientes incorporan grandes
+  modelos de lenguaje y mecanismos de recuperación de información contextual para
+  mejorar la interpretación de textos financieros
+  \parencite{llm2023financialsentiment}.
+
+  En paralelo, los modelos de series temporales como LSTM
+  \textit{(Long Short-Term Memory)} se utilizan para capturar dependencias temporales
+  y estacionales en los datos y proyectar tendencias de precios, volatilidad y volumen        
+  de operaciones. Los modelos basados en LSTM han demostrado una alta capacidad para
+  capturar dependencias temporales en series financieras
+  \parencite{lstm2022financial,comparison2019arima}, e incluso se han combinado con
+  análisis de sentimiento proveniente de redes sociales para mejorar la predicción de
+  precios \parencite{twitter2024lstm}.
+
+  Más recientemente, los enfoques basados en \textit{ensemble} de clasificadores han
+  ganado relevancia en la predicción de la dirección de precios financieros. Métodos
+  como Random Forest, Gradient Boosting y XGBoost han demostrado ser competitivos
+  frente a modelos de mayor complejidad, especialmente cuando se combinan con un
+  proceso riguroso de ingeniería de características técnicas y validación temporal
+  \parencite{comparison2019arima}. Este tipo de enfoque, orientado a la clasificación
+  binaria del movimiento del mercado (alza o baja), permite obtener señales accionables       
+  con mayor interpretabilidad que los modelos de regresión tradicionales.
+
+  No obstante, estas soluciones suelen presentarse de manera fragmentada, donde cada
+  modelo o herramienta cumple un propósito aislado dentro del proceso analítico. La
+  integración de modelos predictivos, análisis de sentimiento y mecanismos automáticos        
+  de alerta en una única plataforma sigue siendo un desafío poco abordado. Además,
+  la mayoría de estas implementaciones requieren infraestructura de cómputo de alto
+  rendimiento, licencias costosas o conocimientos técnicos avanzados para su
+  configuración y mantenimiento.
+
+  Como consecuencia, los inversionistas minoristas y entidades financieras regionales
+  enfrentan una desventaja estructural frente a los grandes actores del mercado, al
+  no disponer de soluciones tecnológicas asequibles que combinen accesibilidad,
+  automatización y capacidad de adaptación. De allí surge la motivación para
+  desarrollar un prototipo funcional de sistema inteligente multiagente, capaz de
+  integrar estas funciones en una arquitectura modular y escalable, promoviendo así
+  un acceso más equitativo al análisis financiero avanzado.
+
+  Como se muestra en la tabla~\ref{tab:comparativa_plataformas}, el prototipo
+  propuesto presenta ventajas significativas en costo, accesibilidad e integración
+  modular respecto de las soluciones existentes.
+
+  \begin{table}[H]
+  \captionsetup[table]{justification=raggedright, singlelinecheck=false}
+  \caption{Plataformas existentes vs. el prototipo propuesto.}
+  \label{tab:comparativa_plataformas}
+  \centering
+  {\Large
+  \renewcommand{\arraystretch}{1.5}
+  \setlength{\tabcolsep}{8pt}
+  \resizebox{0.98\textwidth}{!}{%
+  \begin{tabular}{
+      >{\raggedright\arraybackslash}p{3.8cm}
+      >{\raggedright\arraybackslash}p{2.5cm}
+      >{\raggedright\arraybackslash}p{2.6cm}
+      >{\raggedright\arraybackslash}p{2.8cm}
+      >{\raggedright\arraybackslash}p{2.8cm}
+      >{\centering\arraybackslash}p{2.5cm}
+      >{\raggedright\arraybackslash}p{3.6cm}
+  }
+  \toprule
+  \textbf{Plataforma / Modelo} &
+  \textbf{Costo de acceso} &
+  \textbf{Accesibilidad} &
+  \textbf{Personalización} &
+  \textbf{Integración de módulos} &
+  \textbf{Enfoque multiagente} &
+  \textbf{Tecnologías utilizadas} \\
+  \midrule
+  \textbf{Bloomberg Terminal} &
+  Muy alto (licencia corporativa) &
+  Limitada a instituciones financieras &
+  Baja (interfaz cerrada) &
+  Alta dentro de su ecosistema &
+  No &
+  API propietaria, bases de datos en tiempo real \\
+  \midrule
+  \textbf{FinBERT / Modelos NLP financieros} &
+  Medio (uso de modelos abiertos) &
+  Media (requiere infraestructura técnica) &
+  Alta (ajustable por dominio) &
+  Media (depende de integración externa) &
+  No &
+  Python, PyTorch, Transformers \\
+  \midrule
+  \textbf{Modelos de series temporales (LSTM)} &
+  Bajo (software libre) &
+  Alta (código abierto) &
+  Alta (entrenable con datos propios) &
+  Media (requiere ensamblaje manual) &
+  No &
+  Python, TensorFlow, PyTorch \\
+  \midrule
+  \textbf{Prototipo propuesto} &
+  Bajo / sin costo de licencia &
+  Alta (interfaz web accesible) &
+  Alta (configurable según usuario) &
+  Alta (agentes interconectados) &
+  \textbf{Sí} &
+  Python, FastAPI, Streamlit, SQLite, ML + NLP \\
+  \bottomrule
+  \end{tabular}%
+  }
+  }
+  \end{table}
+
+  %----------------------------------------------------------------------------------------   
+
+  \section{Motivación}
+
+  La motivación central de este trabajo radica en la necesidad de reducir la brecha
+  tecnológica y de información que separa a las grandes instituciones financieras de
+  los pequeños inversionistas. Mientras los actores de gran escala cuentan con
+  plataformas integradas, acceso prioritario a datos y capacidad de análisis
+  automatizado, los usuarios minoristas suelen depender de información fragmentada,
+  tardía o poco contextualizada y muchas veces carecen de conocimientos en el área
+  de finanzas. Esta asimetría limita su capacidad para anticipar movimientos del
+  mercado y tomar decisiones informadas.
+
+  El desarrollo de un sistema inteligente, autónomo y modular busca revertir esta
+  situación mediante la provisión de alertas personalizadas y análisis automatizados,
+  que permitan a cada usuario reaccionar de forma oportuna ante eventos financieros
+  relevantes. La arquitectura propuesta integra componentes que combinan clasificación        
+  de dirección de precios mediante ensemble de modelos, análisis de sentimiento
+  proveniente de noticias económicas y visualización de métricas, bajo un enfoque
+  accesible, explicable y escalable.
+
+  El enfoque multiagente otorga al sistema flexibilidad y robustez, al permitir que
+  cada agente cumpla un rol especializado y opere de manera cooperativa dentro de una
+  estructura distribuida. Esta organización facilita la evolución, mantenimiento y
+  ampliación del sistema, permitiendo incorporar nuevos módulos sin alterar su
+  funcionamiento general.
+
+  La motivación de este trabajo se sustenta en el propósito de democratizar el acceso
+  a la inteligencia financiera, brindando a los pequeños inversionistas una herramienta       
+  que les permita superar las barreras de conocimiento, tiempo y recursos tecnológicos,       
+  y fomentar así un ecosistema financiero más inclusivo, informado y equitativo.
+
+  \section{Objetivos y alcance}
+
+  A continuación, se desarrollan el objetivo general, los objetivos específicos y el
+  alcance.
+
+  \subsection{Objetivo general}
+
+  Diseñar e implementar un sistema multiagente inteligente que integre análisis
+  predictivo, procesamiento de noticias y generación de alertas personalizadas para
+  el seguimiento de activos financieros.
+
+  \subsection{Objetivos específicos}
+
+  Los objetivos específicos son:
+  \begin{itemize}
+      \item Desarrollar agentes especializados para mercado, predicción, sentimiento,
+      recomendación y alertas.
+      \item Aplicar un ensemble de clasificadores de \textit{machine learning} para
+      predecir la dirección del precio de activos financieros.
+      \item Implementar modelos NLP para análisis de sentimiento en noticias financieras,     
+      combinando FinBERT, VADER, TextBlob y un lexicón financiero propio.
+      \item Diseñar una interfaz gráfica que permita visualizar métricas, predicciones        
+      y alertas.
+      \item Evaluar el desempeño del sistema mediante métricas de clasificación
+      (Accuracy, Precision, Recall, F1-Score, AUC-ROC), latencia y confiabilidad.
+  \end{itemize}
+
+  \subsection{Alcance}
+
+  El prototipo se limita al procesamiento de datos públicos y a la generación de
+  alertas sobre un conjunto de activos seleccionados. No incluye operaciones reales
+  de compra o venta, sino la demostración funcional del modelo multiagente y su
+  capacidad de integración. La puesta en producción no forma parte del alcance de
+  este trabajo; se propone como línea de trabajo futuro la integración del sistema
+  en una aplicación web o móvil de uso institucional o minorista.
+
+  \section{Impacto social y económico}
+
+  La desigualdad informativa en los mercados financieros impacta directamente sobre
+  la capacidad de decisión de los pequeños inversionistas. El sistema propuesto
+  contribuye a democratizar el acceso a la información y la analítica avanzada,
+  ofreciendo:
+
+  \begin{itemize}
+      \item Mayor transparencia en el seguimiento de activos financieros.
+      \item Reducción de la brecha tecnológica entre grandes y pequeños actores del
+      mercado.
+      \item Potenciación de la educación financiera a través de herramientas accesibles       
+      y explicables.
+      \item Fomento de la innovación tecnológica en el ámbito financiero regional.
+  \end{itemize}
+
+  Como se observa en la figura~\ref{fig:brecha_informativa}, el sistema reduce la
+  brecha informativa entre actores financieros.
+
+  \begin{figure}[H]
+      \centering
+      \includegraphics[width=0.95\textwidth]{Figures/Figura2.png}
+      \caption{Brecha informativa entre grandes inversores y pequeños inversionistas.}        
+      \label{fig:brecha_informativa}
+  \end{figure}
+
+
+
+
+
+
+
+
+
+
+
+
+  
+
+  \section{Organización de la memoria}
+
+  La presente memoria técnica se organiza en cinco capítulos. El capítulo~1 introduce el
+  contexto, la motivación, los objetivos y el alcance del sistema desarrollado.
+  El capítulo~2 presenta el marco teórico que sustenta las decisiones de diseño,
+  incluyendo los fundamentos de los sistemas multiagentes, machine
+  learning aplicado a finanzas y el análisis de sentimiento con NLP. El
+  capítulo~3 describe en detalle el diseño e implementación del sistema, abarcando
+  la arquitectura multiagente, el backend, la base de datos, el sistema de alertas
+  y los mecanismos de seguridad. El capítulo~4 presenta los resultados obtenidos
+  y la validación del sistema. Finalmente, el capítulo~5 expone las conclusiones
+  y las líneas de trabajo futuro.

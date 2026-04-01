@@ -1,0 +1,5 @@
+﻿Modelo,Predicción,Peso
+Random Forest,$0.86,21.5%
+Gradient Boosting,$1.00,22.1%
+XGBoost,$0.97,27.8%
+LightGBM,$0.98,28.7%

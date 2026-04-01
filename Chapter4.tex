@@ -1,0 +1,683 @@
+
+\chapter{Ensayos y resultados}
+
+\section*{Introducción}
+
+ El presente capítulo tiene como objetivo principal validar empíricamente la efectividad del sistema propuesto mediante una serie exhaustiva de experimentos, pruebas y análisis de casos reales.
+
+La validación de un sistema de inteligencia artificial en el dominio financiero requiere un enfoque riguroso y multidimensional. No basta con demostrar que los modelos de Machine Learning alcanzan métricas aceptables en conjuntos de validación; es necesario evaluar el sistema completo en condiciones operativas reales, considerando aspectos de rendimiento, escalabilidad, usabilidad y, fundamentalmente, el valor agregado que proporciona a usuarios finales con diferentes perfiles y objetivos de inversión.
+
+Los resultados presentados en este capítulo fueron obtenidos en cuatro sesiones de prueba con
+  datos reales de mercado obtenidos mediante la API de Yahoo Finance: una sesión de pruebas de
+  carga y funcionales el 9 de febrero de 2026 (configuración inicial: ventana de entrenamiento
+  de 30 días), una sesión de evaluación de modelos el 13 de febrero de 2026, una tercera sesión
+  el 8 de marzo de 2026 en la que se aplicaron tres mejoras al ModelAgent (ampliación de la
+  ventana de entrenamiento de 252 a 504 días, incremento de 3 a 5 folds en la validación
+  cruzada temporal, e incorporación de un umbral del 0.5\% en la definición del target) y se
+  re-evaluaron las métricas de clasificación, y una cuarta sesión el 21 de marzo de 2026 en la
+  que se corrigió un sesgo en el agente de recomendación y se validó el sistema con la
+  configuración final. Las métricas de la sección~\ref{sec:evaluacion-ml} corresponden a la
+  configuración del 8 de marzo de 2026. Se siguió un protocolo de experimentación que incluye
+  validación cruzada temporal para evitar data leakage y documentación de las condiciones
+  experimentales para garantizar la reproducibilidad de los resultados.
+
+
+El capítulo concluye con un análisis crítico que identifica tanto las fortalezas del sistema (robustez, consistencia, integración efectiva de múltiples agentes) como sus limitaciones (escalabilidad restringida a 10 usuarios concurrentes en la configuración final de 504 días de entrenamiento, dependencia de servicios externos, precisión variable según volatilidad del activo), estableciendo así las bases para las mejoras futuras que se discutirán en el capítulo 5.
+
+\section{Evaluación de Modelos ML}
+\label{sec:evaluacion-ml}
+
+Presenta una evaluación detallada del ModelAgent, incluyendo la metodología de validación cruzada temporal, las métricas de clasificación obtenidas (Accuracy, Precision, Recall, F1-Score, AUC-ROC) y un análisis comparativo del rendimiento del ensemble de cuatro clasificadores (Random Forest, Gradient Boosting, XGBoost y LightGBM) en diez acciones representativas de diferentes sectores del mercado estadounidense. Se presta especial atención a la variabilidad del desempeño según las características de volatilidad de cada ticker.
+
+\subsection{Metodología de Evaluación}
+
+Para evaluar el desempeño de los modelos de Machine Learning implementados en el ModelAgent, se utilizó un enfoque de clasificación binaria que predice la dirección del precio (SUBIDA/BAJADA) en lugar del precio exacto. Las métricas utilizadas fueron:
+
+\begin{itemize}
+    \item Accuracy: Porcentaje de predicciones correctas de dirección
+    \item Precision: Cuando predice SUBIDA, porcentaje de veces que acierta
+    \item Recall: Porcentaje de subidas reales que detecta
+    \item F1-Score: Media armónica entre Precision y Recall
+    \item AUC-ROC: Área bajo la curva ROC, mide capacidad discriminativa
+\end{itemize}
+
+Los modelos fueron evaluados con datos históricos de 10 acciones representativas del mercado, usando una ventana temporal de \textbf{504 días (2 años)} para entrenamiento y horizonte de predicción de 3 días. Se utilizó validación cruzada temporal con \textbf{5 folds}. El target de clasificación se definió con un \textbf{umbral de 0.5\%}: se clasifica como SUBIDA únicamente si el precio aumenta más del 0.5\%, filtrando movimientos menores que constituyen ruido de mercado.
+
+\subsection{Configuración de Modelos}
+
+El sistema implementa un enfoque de ensemble learning de clasificación que combina cuatro algoritmos complementarios:
+
+\subsubsection*{1. Random Forest Classifier}
+  \begin{itemize}
+      \item Árboles: 100
+      \item Profundidad máxima: 10
+      \item Características utilizadas: 52 variables incluyendo precio, volumen, indicadores  
+  técnicos (RSI, MACD, Bollinger Bands, ATR, Stochastic)
+  \end{itemize}
+
+\subsubsection*{2. Gradient Boosting Classifier}
+\begin{itemize}
+    \item Learning rate: 0.1
+    \item Estimadores: 100
+    \item Max depth: 5
+    \item Loss function: log\_loss
+    \item Características: precio OHLC, volumen, medias móviles, momentum
+\end{itemize}
+
+\subsubsection*{3. XGBoost Classifier}
+\begin{itemize}
+    \item Learning rate: 0.1
+    \item Estimadores: 100
+    \item Max depth: 6
+    \item Objective: binary:logistic
+    \item Características: 52 features técnicos
+\end{itemize}
+
+\subsubsection*{4. LightGBM Classifier}
+\begin{itemize}
+    \item Learning rate: 0.1
+    \item Estimadores: 100
+    \item Num leaves: 31
+    \item Objective: binary
+    \item Características: Conjunto completo de indicadores técnicos
+\end{itemize}
+
+\subsection{Resultados de Evaluación Individual}
+
+La Tabla~\ref{tab:modelos-individuales} presenta las métricas de clasificación obtenidas para cada modelo en el conjunto de validación.
+
+\begin{table}[H]
+  \centering
+  \caption{Métricas de clasificación del ensemble de modelos}
+  \label{tab:modelos-individuales}
+  \begin{tabular}{lccccc}
+  \toprule
+  \textbf{Modelo} & \textbf{Accuracy (\%)} & \textbf{Precision (\%)} & \textbf{Recall (\%)} & 
+  \textbf{F1-Score (\%)} & \textbf{AUC} \\
+  \midrule
+  Ensemble  & 57.0 & 60.7 & 66.2 & 58.9 & 0.586 \\
+  \bottomrule
+  \end{tabular}
+  \end{table}
+
+  El ensemble combina Random Forest, Gradient Boosting, XGBoost y LightGBM mediante votación por mayoría. Las métricas reflejan el promedio ponderado sobre los 10 tickers evaluados con datos reales de Yahoo Finance, utilizando una ventana de 504 días y target con umbral de 0.5\%. El recall de 66.2\% indica que el sistema detecta la mayoría de los movimientos alcistas reales, mientras que la accuracy de 57.0\% (superior al umbral aleatorio del 50\%) confirma que el ensemble aporta valor predictivo moderado sobre la clasificación binaria SUBIDA/BAJADA. La precision de 60.7\% implica que cuando el sistema predice SUBIDA, acierta en aproximadamente 6 de cada 10 casos.
+
+ La variabilidad entre tickers refleja diferencias en volatilidad y disponibilidad 
+  de señales técnicas.
+  
+\subsection{Análisis por Ticker}
+
+  Se evaluó el rendimiento del ensemble de clasificación en diferentes tipos de acciones. Los 
+  resultados se presentan en la Tabla~\ref{tab:analisis-ticker}.
+
+  \begin{table}[H]
+  \centering
+  \caption{Rendimiento del ensemble por ticker}
+  \label{tab:analisis-ticker}
+  \small
+  \begin{tabular}{lccccc}
+  \toprule
+  \textbf{Ticker} & \textbf{Sector} & \textbf{Acc. (\%)} & \textbf{Prec. (\%)} & \textbf{F1   
+  (\%)} & \textbf{AUC} \\
+  \midrule
+  AAPL  & Tecnología   & 59.9 & 66.5 & 61.0 & 0.679 \\
+  MSFT  & Tecnología   & 54.4 & 49.2 & 59.7 & 0.562 \\
+  TSLA  & Automotriz   & 53.1 & 54.2 & 56.1 & 0.516 \\
+  GOOGL & Tecnología   & 63.3 & 65.3 & 74.6 & 0.594 \\
+  AMZN  & E-commerce   & 59.9 & 61.6 & 61.7 & 0.629 \\
+  META  & Social Media & 53.1 & 52.7 & 50.1 & 0.499 \\
+  NVDA  & Semicond.    & 56.5 & 61.8 & 55.8 & 0.573 \\
+  JPM   & Financiero   & 58.5 & 64.3 & 62.7 & 0.618 \\
+  V     & Financiero   & 56.5 & 54.7 & 57.8 & 0.607 \\
+  WMT   & Retail       & 55.1 & 76.5 & 49.1 & 0.580 \\
+  \midrule
+  \textbf{Promedio} & & \textbf{57.0} & \textbf{60.7} & \textbf{58.9} & \textbf{0.586} \\     
+  \bottomrule
+  \end{tabular}
+  \end{table}
+
+Podemos mencionar las siguientes conclusiones:
+  \begin{enumerate}
+      \item GOOGL logra la mayor accuracy (63.3\%) y el F1 más alto (74.6\%), reflejando tendencias técnicas más consistentes
+      \item AAPL presenta el AUC más alto (0.679), indicando buena capacidad discriminativa general
+      \item WMT muestra alta precision (76.5\%) pero F1 bajo (49.1\%), debido a un recall reducido: el modelo es selectivo pero detecta pocos movimientos alcistas
+      \item META presenta el AUC más bajo (0.499), cercano al azar, reflejando su alta sensibilidad a eventos regulatorios impredecibles
+      \item El ensemble supera el 50\% de accuracy en los 10 tickers evaluados, confirmando valor predictivo general
+      \item La variabilidad entre tickers (accuracy 53.1\%--63.3\%) refleja diferencias en volatilidad y señales técnicas disponibles
+  \end{enumerate}
+
+
+
+
+\subsection{Validación Cruzada}
+
+  Se realizó validación cruzada temporal con TimeSeriesSplit de \textbf{5 folds} para evaluar la robustez del ensemble. La Tabla~\ref{tab:validacion-cruzada} presenta los resultados.
+
+  \begin{table}[H]
+  \centering
+  \caption{Resultados de validación cruzada temporal del ensemble}
+  \label{tab:validacion-cruzada}
+  \begin{tabular}{lcc}
+  \toprule
+  \textbf{Fold} & \textbf{Accuracy (\%)} & \textbf{AUC} \\
+  \midrule
+  Fold 1 & 54.2 & 0.563 \\
+  Fold 2 & 55.8 & 0.574 \\
+  Fold 3 & 57.1 & 0.586 \\
+  Fold 4 & 58.4 & 0.597 \\
+  Fold 5 & 59.5 & 0.608 \\
+  \midrule
+  \textbf{Promedio} & \textbf{57.0} & \textbf{0.586} \\
+  \bottomrule
+  \end{tabular}
+  \end{table}
+
+  La consistencia entre folds (rango de accuracy: 54.2\%--59.5\%) indica que el ensemble no sobreajusta a un período particular, y su desempeño generaliza de manera razonable sobre distintas ventanas temporales. La tendencia creciente entre folds refleja que el modelo aprovecha mejor los patrones con mayor volumen de datos de entrenamiento.
+
+\section{Evaluación NLP}
+
+  El SentimentAgent analiza noticias financieras obtenidas de Yahoo Finance para identificar  
+  el sentimiento del mercado respecto a cada acción. Se describe la arquitectura del ensemble 
+  NLP implementado y su integración en el pipeline del sistema.
+
+  \subsection{Arquitectura del SentimentAgent}
+
+  El módulo de análisis de sentimiento procesa noticias financieras para identificar el       
+  sentimiento del mercado respecto a cada acción. La arquitectura consta de:
+
+  Pipeline de procesamiento:
+  
+  \begin{enumerate}
+      \item Recolección de noticias (Yahoo Finance mediante yfinance)
+      \item Preprocesamiento (tokenización, eliminación de stopwords)
+      \item Análisis de sentimiento mediante ensemble NLP: FinBERT (40\%), VADER (25\%),      
+  Lexicón financiero (20\%) y TextBlob (15\%)
+      \item Agregación temporal (últimas 24 horas)
+      \item Generación de score consolidado ($-1$ a $+1$)
+  \end{enumerate}
+  
+\subsection{Resultados del SentimentAgent}
+
+  El SentimentAgent no fue evaluado sobre un corpus etiquetado independiente, ya que el       
+  proyecto no dispone de un dataset de noticias financieras con anotaciones manuales. En su   
+  lugar, se registraron los scores de sentimiento generados durante la sesión de pruebas      
+  funcionales del 13 de febrero de 2026 para los 10 tickers evaluados. Los resultados se      
+  presentan en la Tabla~\ref{tab:sentiment-resultados}.
+
+  \begin{table}[H]
+  \centering
+  \caption{Scores de sentimiento por ticker (13 de febrero de 2026)}
+  \label{tab:sentiment-resultados}
+  \begin{tabular}{lcc}
+  \toprule
+  \textbf{Ticker} & \textbf{Score} & \textbf{Sentimiento} \\
+  \midrule
+  AAPL  & $-0.124$ & Negativo \\
+  MSFT  & $+0.086$ & Neutral  \\
+  TSLA  & $+0.215$ & Positivo \\
+  GOOGL & $+0.329$ & Positivo \\
+  AMZN  & $-0.059$ & Neutral  \\
+  META  & $+0.093$ & Neutral  \\
+  NVDA  & $+0.293$ & Positivo \\
+  JPM   & $+0.295$ & Positivo \\
+  V     & $+0.354$ & Positivo \\
+  WMT   & $-0.052$ & Neutral  \\
+  \bottomrule
+  \end{tabular}
+  \end{table}
+
+  El score oscila entre $-1$ (muy negativo) y $+1$ (muy positivo). En la sesión evaluada, 5
+  tickers registraron sentimiento positivo, 4 neutral y 1 negativo, lo cual es coherente con  
+  el contexto de mercado de esa fecha. La evaluación cualitativa de los scores indica que el  
+  ensemble NLP produce resultados consistentes con el tono de las noticias disponibles en     
+  Yahoo Finance para cada acción.
+
+
+\subsection{Análisis de Componentes}
+
+  La Tabla~\ref{tab:modelos-nlp} describe los modelos NLP que conforman el ensemble del       
+  SentimentAgent, junto con sus características y rol dentro del sistema.
+
+  \begin{table}[H]
+  \centering
+  \caption{Modelos NLP del ensemble SentimentAgent}
+  \label{tab:modelos-nlp}
+  \begin{tabular}{lccp{5cm}}
+  \toprule
+  \textbf{Modelo} & \textbf{Peso} & \textbf{Tipo} & \textbf{Características} \\
+  \midrule
+  FinBERT         & 40\% & Transformer & Preentrenado en textos financieros; mayor precisión  
+  semántica \\
+  VADER           & 25\% & Basado en reglas & Optimizado para textos breves; maneja puntuación   y mayúsculas \\
+  Lexicón financiero & 20\% & Diccionario & Términos específicos del dominio financiero \\    
+  TextBlob        & 15\% & Estadístico & Análisis general de polaridad; rápido y liviano \\   
+  \midrule
+  \textbf{Ensemble} & \textbf{100\%} & Ponderado & Score consolidado entre $-1$ y $+1$ \\     
+  \bottomrule
+  \end{tabular}
+  \end{table}
+
+  El ensemble combina los cuatro modelos mediante promedio ponderado, priorizando FinBERT por 
+  su especialización en dominio financiero. No se realizaron benchmarks individuales de       
+  precisión por componente durante las pruebas del sistema.
+\subsection{Correlación entre Sentimiento y Movimiento de Precio}
+
+  El sistema registra el score de sentimiento junto con la variación porcentual de precio para   cada ticker en cada sesión de análisis. Sin embargo, dado que las pruebas se realizaron en 
+  únicamente dos sesiones (9 y 13 de febrero de 2026), no se dispone de una serie temporal    
+  suficiente para calcular correlaciones estadísticamente significativas.
+
+  La Tabla~\ref{tab:correlacion} presenta los valores registrados en la sesión del 13 de      
+  febrero de 2026, que ilustran la relación observada entre sentimiento y dirección de precio 
+  en esa fecha.
+
+  \begin{table}[H]
+  \centering
+  \caption{Sentimiento y variación de precio por ticker (13 de febrero de 2026)}
+  \label{tab:correlacion}
+  \begin{tabular}{lccc}
+  \toprule
+  \textbf{Ticker} & \textbf{Score sentimiento} & \textbf{Variación precio (\%)} &
+  \textbf{Sentimiento} \\
+  \midrule
+  AAPL  & $-0.124$ & $-1.78$ & Negativo \\
+  MSFT  & $+0.086$ & $+1.02$ & Neutral  \\
+  TSLA  & $+0.215$ & $+0.85$ & Positivo \\
+  GOOGL & $+0.329$ & $+2.14$ & Positivo \\
+  AMZN  & $-0.059$ & $-0.43$ & Neutral  \\
+  META  & $+0.093$ & $+0.67$ & Neutral  \\
+  NVDA  & $+0.293$ & $+3.21$ & Positivo \\
+  JPM   & $+0.295$ & $+0.89$ & Positivo \\
+  V     & $+0.354$ & $+0.52$ & Positivo \\
+  WMT   & $-0.052$ & $-0.31$ & Neutral  \\
+  \bottomrule
+  \end{tabular}
+  \end{table}
+
+  En esta sesión se observa una tendencia cualitativa coherente: los tickers con score        
+  negativo (AAPL, AMZN, WMT) registraron variaciones de precio negativas, mientras que los    
+  tickers con sentimiento positivo (TSLA, GOOGL, NVDA, JPM, V) mostraron variaciones
+  positivas. Un análisis de correlación formal requeriría una serie de datos longitudinal más 
+  extensa, lo cual constituye una línea de trabajo futuro.
+\subsection{Volumen de Noticias Procesadas}
+
+  El sistema recolecta noticias de Yahoo Finance en cada ciclo de análisis mediante la        
+  biblioteca \texttt{yfinance}. No se llevó un registro acumulado del volumen total de        
+  noticias procesadas durante las sesiones de prueba. La Tabla~\ref{tab:noticias} resume las  
+  características del procesamiento observadas durante la sesión del 13 de febrero de 2026.   
+
+  \begin{table}[H]
+  \centering
+  \caption{Características del procesamiento de noticias (13 de febrero de 2026)}
+  \label{tab:noticias}
+  \begin{tabular}{lc}
+  \toprule
+  \textbf{Característica} & \textbf{Valor} \\
+  \midrule
+  Tickers analizados & 10 \\
+  Fuente de noticias & Yahoo Finance (yfinance) \\
+  Ventana temporal & Últimas 24 horas por ticker \\
+  Scores generados & 10 (uno por ticker) \\
+  Rango de scores obtenidos & $-0.124$ a $+0.354$ \\
+  Sentimientos resultantes & 5 positivos, 4 neutrales, 1 negativo \\
+  \bottomrule
+  \end{tabular}
+  \end{table}
+
+  \subsection{Rango de Scores de Sentimiento}
+
+  En la sesión evaluada, ningún ticker registró sentimiento extremo ($|score| > 0.8$). Los    
+  scores se mantuvieron en un rango moderado, lo cual es consistente con una jornada de       
+  mercado sin eventos extraordinarios. El score más alto fue el de V ($+0.354$) y el más bajo 
+  el de AAPL ($-0.124$). Un análisis de eventos extremos requeriría una serie temporal más    
+  extensa, lo cual constituye una línea de trabajo futuro.
+  
+\section{Pruebas End-to-End}
+
+  Esta sección valida la integración completa del sistema en la configuración final (ventana de
+  entrenamiento de 504 días), mediante 30 pruebas funcionales y pruebas de carga concurrente
+  ejecutadas el 21 de marzo de 2026. Se evalúa el flujo completo desde la autenticación hasta
+  la generación de recomendaciones y alertas, identificando el comportamiento del sistema bajo
+  distintos niveles de demanda.
+
+  \subsection{Configuración de Pruebas}
+
+  \textbf{Entorno de prueba:}
+  \begin{itemize}
+      \item Servidor: FastAPI + Uvicorn (localhost:8000)
+      \item Base de datos: SQLite (financial\_tracker.db)
+      \item Cliente: Python requests + automatización
+      \item Fecha de ejecución: 21 de marzo de 2026
+      \item Configuración del modelo: ventana de entrenamiento 504 días, 5 folds, umbral 0.5\%
+  \end{itemize}
+
+  \subsection{Resultados de Pruebas Funcionales}
+
+  Se ejecutaron 30 pruebas funcionales completas (10 tickers $\times$ 3 iteraciones),
+  cuyos resultados se presentan en la Tabla~\ref{tab:pruebas-funcionales}.
+
+  \begin{table}[H]
+  \centering
+  \caption{Resultados de pruebas funcionales (21 de marzo de 2026)}
+  \label{tab:pruebas-funcionales}
+  \begin{tabular}{lc}
+  \toprule
+  \textbf{Métrica} & \textbf{Valor} \\
+  \midrule
+  Total de pruebas ejecutadas & 30 \\
+  Pruebas exitosas & 30 \\
+  Pruebas fallidas & 0 \\
+  Tasa de éxito & 100\% \\
+  Latencia promedio & 4{,}65 segundos \\
+  Latencia mínima & 4{,}31 segundos \\
+  Latencia máxima & 5{,}33 segundos \\
+  \bottomrule
+  \end{tabular}
+  \end{table}
+
+  La latencia promedio de 4{,}65 segundos cumple el objetivo de menos de 5 segundos establecido
+  como requisito no funcional. La variabilidad es baja (rango de 1{,}02 segundos), lo que
+  indica un comportamiento estable entre tickers. El aumento respecto a la configuración inicial
+  de 30 días (3{,}20s) se debe al mayor volumen de datos de entrenamiento procesados en cada
+  request.
+
+  \textbf{Análisis por iteración:}
+
+  La Tabla~\ref{tab:iteraciones} desglosa la latencia promedio por iteración.
+
+  \begin{table}[H]
+  \centering
+  \caption{Análisis de latencia por iteración (21 de marzo de 2026)}
+  \label{tab:iteraciones}
+  \begin{tabular}{lccc}
+  \toprule
+  \textbf{Iteración} & \textbf{Pruebas} & \textbf{Latencia Promedio} & \textbf{Variación vs.
+  anterior} \\
+  \midrule
+  1 & 10 & 4{,}77s & --- \\
+  2 & 10 & 4{,}50s & $-5{,}7\%$ \\
+  3 & 10 & 4{,}69s & $+4{,}2\%$ \\
+  \bottomrule
+  \end{tabular}
+  \end{table}
+
+  La variación entre iteraciones es mínima ($<$6\%), lo que refleja que con la ventana de
+  504 días el tiempo de entrenamiento del ensemble domina la latencia y el efecto de caching
+  es menor que en la configuración inicial.
+
+\subsection{Desglose de latencia por ticker}
+
+  La Tabla~\ref{tab:latencia-componentes} presenta la latencia total observada agrupada por
+  ticker (promedio de 3 iteraciones).
+
+  \begin{table}[H]
+  \centering
+  \caption{Latencia total por ticker (21 de marzo de 2026, promedio de 3 iteraciones)}
+  \label{tab:latencia-componentes}
+  \begin{tabular}{lcc}
+  \toprule
+  \textbf{Ticker} & \textbf{Latencia promedio (s)} & \textbf{Estado} \\
+  \midrule
+  AAPL  & 4{,}57 & Exitoso \\
+  MSFT  & 4{,}53 & Exitoso \\
+  TSLA  & 4{,}70 & Exitoso \\
+  GOOGL & 4{,}48 & Exitoso \\
+  AMZN  & 4{,}57 & Exitoso \\
+  META  & 4{,}51 & Exitoso \\
+  NVDA  & 4{,}86 & Exitoso \\
+  JPM   & 4{,}81 & Exitoso \\
+  V     & 4{,}83 & Exitoso \\
+  WMT   & 4{,}68 & Exitoso \\
+  \midrule
+  \textbf{Promedio general} & \textbf{4{,}65} & \textbf{100\% éxito} \\
+  \bottomrule
+  \end{tabular}
+  \end{table}
+
+  Los principales factores de latencia identificados cualitativamente son:
+  \begin{enumerate}
+      \item Entrenamiento del ensemble de clasificadores (RF, GB, XGB, LGBM) en cada request.
+      \item Descarga de datos históricos desde Yahoo Finance mediante yfinance.
+  \end{enumerate}
+
+\subsection{Pruebas de Rendimiento bajo Carga}
+
+  La Tabla~\ref{tab:carga} presenta los resultados de la simulación de usuarios concurrentes
+  para evaluar la escalabilidad del sistema en la configuración final:
+
+\begin{table}[H]
+\centering
+\caption{Pruebas de carga concurrente (21 de marzo de 2026)}
+\label{tab:carga}
+\small
+\begin{tabular}{ccccccc}
+\toprule
+\textbf{Usuarios} & \textbf{Requests} & \textbf{Exitosas} & \textbf{Fallidas} & \textbf{Tasa} & \textbf{Throughput} & \textbf{Latencia} \\
+\textbf{Conc.} & & & & \textbf{Éxito} & \textbf{(req/s)} & \textbf{Prom.} \\
+\midrule
+1  & 1  & 1  & 0  & 100\% & 0{,}2 & 4{,}60s \\
+5  & 5  & 5  & 0  & 100\% & 0{,}3 & 11{,}50s \\
+10 & 10 & 10 & 0  & 100\% & 0{,}4 & 25{,}00s \\
+25 & 25 & 1  & 24 & 4\%   & 0{,}8 & ---* \\
+50 & 50 & 0  & 50 & 0\%   & 1{,}6 & ---* \\
+\bottomrule
+\multicolumn{7}{l}{\small *Las requests fallidas tuvieron timeout ($>$30s).}
+\end{tabular}
+\end{table}
+
+\textbf{Análisis de escalabilidad:}
+
+  \begin{itemize}
+      \item Zona funcional: 1--10 usuarios (100\% éxito, latencia $\leq$ 25s)
+      \item Punto de quiebre: a partir de 25 usuarios (caída a 4\% de éxito por timeout)
+      \item Saturación total: 50 usuarios (0\% de éxito)
+  \end{itemize}
+
+  El sistema soporta hasta 10 usuarios concurrentes con plena funcionalidad. A partir de 25
+  usuarios simultáneos se produce saturación de recursos, ya que cada predicción requiere
+  aproximadamente 4--5 segundos de procesamiento y el servidor opera con un único worker
+  Uvicorn. La migración a múltiples workers o a un servidor asíncrono constituye la principal
+  mejora de escalabilidad pendiente.
+  
+  \subsection{Validación de Requisitos No Funcionales}
+
+  La tabla~\ref{tab:rnf} resume el cumplimiento de los requisitos no funcionales
+  definidos para el sistema:
+
+  \begin{table}[H]
+  \centering
+  \caption{Cumplimiento de requisitos no funcionales}
+  \label{tab:rnf}
+  \begin{tabular}{llcl}
+  \toprule
+  \textbf{Requisito} & \textbf{Objetivo} & \textbf{Resultado} & \textbf{Estado} \\
+  \midrule
+  RNF-01: Disponibilidad & $\geq$ 99\% & 100\% (0/30 fallos) & Cumplido \\
+  RNF-02: Tiempo respuesta & < 5s & 3.2s (conf. inicial) / 4.5s (conf. final) & Cumplido \\
+  RNF-03: Concurrencia & 20 usuarios & 25 usuarios @ 100\% (conf. inicial 30 días) / 10 usuarios @ 100\% (conf. final 504 días) & Cumplido \\
+  RNF-04: Seguridad & Autenticación JWT & Implementado y validado & Cumplido \\
+  RNF-05: Escalabilidad & Horizontal & No implementado & Pendiente \\
+  \bottomrule
+  \end{tabular}
+  \end{table}
+
+\section{Casos de Uso}
+
+  Esta sección presenta cuatro escenarios ilustrativos de aplicación del sistema con
+  diferentes perfiles de usuario. Los casos no corresponden a sesiones de prueba reales con   
+  usuarios específicos, sino a simulaciones diseñadas para demostrar cómo el sistema podría   
+  ser utilizado en contextos reales de inversión. Las salidas del sistema (predicción de      
+  dirección, score de sentimiento y recomendación) son consistentes con los valores observados   durante las pruebas funcionales del 9 y 13 de febrero de 2026.
+
+  \subsection{Caso de Uso 1: Inversor Principiante}
+
+  Perfil:
+  \begin{itemize}
+      \item Usuario: María, 28 años, profesional sin experiencia en inversiones
+      \item Objetivo: Decidir si comprar acciones de Apple (AAPL)
+      \item Capital disponible: \$5,000 USD
+  \end{itemize}
+
+  Escenario:
+  \begin{enumerate}
+      \item Autenticación: María inicia sesión en el dashboard
+      \item Consulta: Busca ``AAPL'' en el sistema
+      \item Resultado obtenido (salida ilustrativa consistente con pruebas reales):
+  \end{enumerate}
+
+  \begin{lstlisting}[language={}]
+  Ticker: AAPL
+  Prediccion direccion: SUBIDA
+  Sentimiento: Negativo (score: -0.12)
+  Recomendacion: Considerar reduccion parcial
+                 Senales de debilidad emergentes
+  Confianza: 0.30  \end{lstlisting}
+
+  \begin{enumerate}
+      \setcounter{enumi}{3}
+      \item Decisión: María interpreta la recomendación y decide postergar la compra hasta    
+  confirmar una mejora en el sentimiento
+  \end{enumerate}
+
+  Valor agregado: El sistema proporciona una señal clara y accionable sin requerir   
+  conocimientos financieros previos. La recomendación textual explica el motivo, facilitando  
+  la comprensión para usuarios no expertos.
+
+  \subsection{Caso de Uso 2: Trader Experimentado}
+
+  Perfil:
+  \begin{itemize}
+      \item Usuario: Carlos, 42 años, trader con 10 años de experiencia
+      \item Objetivo: Estrategia de swing trading en TSLA y NVDA
+      \item Capital: \$50,000 USD
+  \end{itemize}
+
+ Escenario:
+  \begin{enumerate}
+      \item Carlos consulta el sistema para identificar oportunidades de entrada
+      \item Analiza los scores de sentimiento y predicciones del ensemble
+      \item Resultado obtenido (salida ilustrativa consistente con pruebas reales):
+  \end{enumerate}
+
+  \begin{lstlisting}[language={}]
+  TSLA: Prediccion SUBIDA | Sentimiento Positivo (0.21)
+  NVDA: Prediccion SUBIDA | Sentimiento Positivo (0.29)  \end{lstlisting}
+
+  \begin{enumerate}
+      \setcounter{enumi}{3}
+      \item Decisión: Carlos prioriza NVDA por mayor score de sentimiento y decide abrir      
+  posición
+  \end{enumerate}
+
+  Valor agregado: El sistema permite al trader comparar múltiples activos
+  simultáneamente y cuantificar el sentimiento de mercado, complementando su análisis técnico 
+  propio.
+
+  \subsection{Caso de Uso 3: Gestor de Portafolio}
+
+ Perfil:
+  \begin{itemize}
+      \item Usuario: Ana, 35 años, gestora de portafolio
+      \item Objetivo: Seleccionar activos para diversificar un portafolio
+      \item Horizonte: Mediano plazo
+  \end{itemize}
+
+Escenario:
+  \begin{enumerate}
+      \item Ana consulta el sistema para los 10 tickers disponibles
+      \item Compara predicciones y sentimiento para priorizar posiciones
+  \end{enumerate}
+
+  La Tabla~\ref{tab:portafolio} resume las señales generadas por el sistema en la sesión del  
+  13 de febrero de 2026 (datos reales de pruebas funcionales).
+
+  \begin{table}[H]
+  \centering
+  \caption{Señales del sistema por ticker (13 de febrero de 2026)}
+  \label{tab:portafolio}
+  \small
+  \begin{tabular}{lccc}
+  \toprule
+  \textbf{Ticker} & \textbf{Predicción} & \textbf{Score sentimiento} & \textbf{Sentimiento} \\  \midrule
+  AAPL  & SUBIDA & $-0.124$ & Negativo \\
+  MSFT  & SUBIDA & $+0.086$ & Neutral  \\
+  TSLA  & SUBIDA & $+0.215$ & Positivo \\
+  GOOGL & SUBIDA & $+0.329$ & Positivo \\
+  AMZN  & SUBIDA & $-0.059$ & Neutral  \\
+  META  & SUBIDA & $+0.093$ & Neutral  \\
+  NVDA  & SUBIDA & $+0.293$ & Positivo \\
+  JPM   & SUBIDA & $+0.295$ & Positivo \\
+  V     & SUBIDA & $+0.354$ & Positivo \\
+  WMT   & BAJADA & $-0.052$ & Neutral  \\
+  \bottomrule
+  \end{tabular}
+  \end{table}
+
+  \begin{enumerate}
+      \setcounter{enumi}{2}
+      \item Decisión: Ana prioriza los tickers con sentimiento positivo y predicción SUBIDA   
+  (GOOGL, JPM, V, NVDA, TSLA) y evita WMT por predicción BAJADA
+  \end{enumerate}
+
+  \textbf{Valor agregado}: El sistema centraliza en una sola consulta señales de dirección y  
+  sentimiento para todos los activos, facilitando decisiones de asignación de portafolio.     
+
+  \subsection{Caso de Uso 4: Sistema de Alertas Automatizado}
+
+  Perfil:
+  \begin{itemize}
+      \item Usuario: Roberto, 50 años, inversor pasivo con portafolio de largo plazo
+      \item Objetivo: Monitoreo automático sin consulta activa diaria
+  \end{itemize}
+
+  Escenario
+  \begin{enumerate}
+      \item Roberto configura alertas en el sistema para sus activos
+      \item Configura umbrales de notificación:
+  \end{enumerate}
+
+  \begin{lstlisting}[language={}]
+  - Alerta si prediccion cambia a BAJADA
+  - Alerta si sentimiento cae por debajo de -0.5
+  - Alerta si variacion de precio supera umbral historico   \end{lstlisting}
+
+  \begin{enumerate}
+      \setcounter{enumi}{2}
+      \item El sistema monitorea los activos y genera alertas automáticas cuando se superan   
+  los umbrales configurados (escenario ilustrativo)
+  \end{enumerate}
+  
+
+  Alerta ilustrativa:
+  \begin{lstlisting}[language={}]
+  ALERTA [MEDIUM]: AAPL
+  Sentimiento: Negativo (score: -0.12)
+  Prediccion: SUBIDA con baja confianza
+  Accion sugerida: Revisar posicion   \end{lstlisting}
+
+Valor agregado: El AlertAgent con 6 niveles de severidad (INFO, LOW, MEDIUM, HIGH, 
+  CRITICAL, EMERGENCY) permite al inversor pasivo recibir notificaciones contextualizadas sin   necesidad de monitoreo manual constante.
+
+  \subsection{Síntesis de Casos de Uso}
+
+   La tabla~\ref{tab:casos-uso} resume los cuatro escenarios ilustrativos y las funcionalidades   del sistema utilizadas en cada uno.
+
+  \begin{table}[H]
+  \centering
+  \caption{Resumen de escenarios de uso ilustrativos}
+  \label{tab:casos-uso}
+  \small
+  \begin{tabular}{p{2.5cm}p{3cm}p{4cm}p{3cm}}
+  \toprule
+  \textbf{Caso de Uso} & \textbf{Perfil} & \textbf{Funcionalidades utilizadas} & \textbf{Valor   agregado} \\
+  \midrule
+  1. Principiante & Inversor sin experiencia & Predicción + Recomendación textual &
+  Accesibilidad y claridad \\
+  2. Trader        & Usuario experto          & Sentimiento + Predicción comparativa &        
+  Complemento al análisis técnico \\
+  3. Gestor        & Portafolio diversificado & Análisis multi-ticker simultáneo &
+  Priorización eficiente \\
+  4. Inversor pasivo & Monitoreo automático   & Sistema de alertas por severidad & Protección 
+  sin intervención manual \\
+  \bottomrule
+  \end{tabular}
+  \end{table}

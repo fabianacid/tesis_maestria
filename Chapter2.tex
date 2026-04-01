@@ -1,0 +1,334 @@
+\chapter{Marco teórico} % Main chapter title
+
+\label{Chapter2}
+
+%----------------------------------------------------------------------------------------
+%	SECTION 1
+%----------------------------------------------------------------------------------------
+Este capítulo incluye los fundamentos teóricos y técnicos que sustentan el prototipo multiagente. 
+
+
+\section{Sistema multiagente}
+
+Un sistema multiagente se basa en la interacción entre entidades de software denominadas agentes, que cooperan, compiten o se comunican entre sí para resolver tareas complejas. En un entorno multiagente, el conocimiento y las responsabilidades están distribuidos, lo que permite una mayor flexibilidad, escalabilidad y tolerancia a fallos.
+
+Un agente es una unidad de software autónoma capaz de percibir su entorno, procesar información y actuar sobre él en función de los objetivos que se le asignan. Cada agente posee mecanismos internos para interpretar datos, planificar acciones y aprender de la experiencia, lo que le permite adaptarse dinámicamente a los cambios del contexto.
+
+El ciclo básico de funcionamiento de un agente se compone de tres etapas principales:
+
+\begin{itemize}[leftmargin=1.5em]
+    \item Percepción: recibe información de su entorno o de otros agentes; por ejemplo, precios de mercado, indicadores financieros o noticias relevantes.
+    \item Decisión: analiza la información recibida, compara con sus objetivos y selecciona la acción más adecuada.
+    \item Acción: ejecuta una tarea concreta o comunica los resultados a otros agentes, generando así un flujo continuo de información.
+\end{itemize}
+
+Estas etapas constituyen el ciclo percepción–decisión–acción, que caracteriza el comportamiento inteligente del sistema.
+
+Los agentes presentan propiedades fundamentales que los distinguen de los programas convencionales:
+
+\begin{itemize}[leftmargin=1.5em]
+    \item Autonomía: pueden actuar y tomar decisiones sin intervención directa del usuario o de un controlador central.
+    \item Cooperación: colaboran con otros agentes mediante el intercambio de mensajes o eventos para alcanzar metas comunes.
+    \item Modularidad: cada agente cumple un rol específico dentro del sistema, lo que permite dividir el trabajo en componentes especializados.
+    \item Escalabilidad: el sistema admite la incorporación de nuevos agentes sin necesidad de modificar la estructura general.
+\end{itemize}
+
+En el prototipo desarrollado, cada agente cumple una función específica dentro del ecosistema:
+
+\begin{itemize}[leftmargin=1.5em]
+      \item Agente de mercado
+      \item Agente de predicción
+      \item Agente de sentimiento
+      \item Agente de recomendación
+      \item Agente de alertas
+  \end{itemize}
+
+La arquitectura propuesta se basa en un modelo distribuido de cooperación entre módulos. 
+Como se muestra en la figura~\ref{fig:diagrama_interaccion_agentes}, cada agente es invocado secuencialmente por el backend FastAPI, que coordina el pipeline de   procesamiento y centraliza las respuestas.
+
+
+
+\begin{figure}[H]
+\centering
+{\Large
+
+\begin{adjustbox}{max totalsize={0.96\textwidth}{0.70\textheight}}
+\begin{tikzpicture}[
+  node distance=16mm and 18mm,
+  box/.style={
+      draw,
+      rounded corners=3mm,
+      align=center,
+      font=\Large\bfseries,   % <<< LETRA MÁS GRANDE EN LOS NODOS
+      inner sep=10pt,
+      minimum width=48mm,
+      minimum height=14mm,
+      fill=gray!10
+  },
+  bus/.style={
+      draw,
+      rounded corners=3mm,
+      align=center,
+      font=\Large\bfseries,   % <<< TAMBIÉN EN EL BUS
+      inner sep=12pt,
+      minimum width=12.5cm,
+      minimum height=16mm,
+      fill=blue!10
+  },
+  arrow/.style={-Latex, thick},
+  every node/.style={font=\Large} % <<< Texto de flechas también más grande
+]
+
+% Bus central
+\node[bus] (bus) {BACKEND FastAPI};
+
+% Agentes
+\node[box, above left=18mm and 42mm of bus] (market) {AGENTE DE MERCADO};
+\node[box, above right=18mm and 42mm of bus] (news) {AGENTE DE SENTIMIENTO};
+\node[box, left=28mm of bus] (pred) {AGENTE DE PREDICCIÓN};
+\node[box, right=28mm of bus] (reco) {AGENTE DE RECOMENDACIÓN};
+\node[box, below=18mm of bus] (user) {AGENTE DE ALERTA};
+
+% Conexiones
+\draw[arrow] (market) -- (bus);
+\draw[arrow] (news) -- (bus);
+\draw[arrow] (bus) -- (pred);
+\draw[arrow] (pred) -- (bus);
+\draw[arrow] (bus) -- (reco);
+\draw[arrow] (reco) -- (bus);
+\draw[arrow] (bus) -- (user);
+
+\end{tikzpicture}
+\end{adjustbox}
+
+} % fin Large
+\caption{Interacción entre agentes en el sistema multiagente.}
+\label{fig:diagrama_interaccion_agentes}
+\end{figure}
+
+
+\section{Machine learning aplicado a finanzas}
+
+  El aprendizaje automático \textit{(machine learning)} ha demostrado gran potencial
+  para modelar y predecir el comportamiento de los mercados financieros. Los modelos
+  de clasificación permiten capturar tendencias, estacionalidades y relaciones no
+  lineales presentes en los precios de los activos.
+
+  Entre los algoritmos más utilizados para la clasificación de movimientos de precios
+  se destacan los métodos de \textit{ensemble}: Random Forest, Gradient Boosting,
+  XGBoost y LightGBM. Estos clasificadores combinan múltiples modelos para mejorar
+  la precisión y reducir el sobreajuste, y han demostrado ser competitivos en tareas
+  de predicción financiera \parencite{comparison2019arima}. El proceso de
+  entrenamiento se realiza mediante \textit{walk-forward validation} con
+  \textit{TimeSeriesSplit}, respetando el orden temporal de los datos para evitar
+  filtraciones de información futura. Las redes LSTM, presentadas por Hochreiter y
+  Schmidhuber, han probado ser eficaces para capturar dependencias de largo plazo en
+  datos financieros \parencite{hochreiter1997long}, y se incorporan en el sistema
+  como componente opcional del ensemble.
+
+  En el presente trabajo, estos modelos se aplican para clasificar la dirección del movimiento de precios de activos financieros (alza o baja) en un horizonte de tres días, a partir de 52 características técnicas derivadas de los precios históricos. El entrenamiento utiliza una ventana de \textbf{504 días (2 años)} con validación cruzada temporal de \textbf{5 folds}. El target de clasificación se define con un \textbf{umbral de 0.5\%}: se etiqueta como SUBIDA únicamente si el precio aumenta más del 0.5\%, lo que permite filtrar movimientos de menor magnitud que representan ruido de mercado. Los resultados se evalúan con métricas de clasificación binaria: Accuracy, Precision, Recall, F1-Score y AUC-ROC.
+
+\section{Arquitectura general}
+
+  La arquitectura del sistema multiagente propuesto se basa en un ecosistema modular
+  que permite la comunicación fluida entre componentes especializados. Su diseño busca        
+  maximizar la escalabilidad, la mantenibilidad y la capacidad de integración futura
+  con servicios externos, empleando tecnologías abiertas y ligeras.
+
+  Cada agente se implementa como un módulo independiente, invocado secuencialmente
+  por el backend FastAPI, que actúa como coordinador central del pipeline de
+  procesamiento. El sistema se compone de tres elementos tecnológicos principales:
+  FastAPI, SQLite y Streamlit, cuyas funciones se describen a continuación.
+
+  \begin{itemize}
+      \item FastAPI: framework moderno y de alto rendimiento para el
+      desarrollo de servicios REST en Python. Su uso permite manejar peticiones
+      concurrentes mediante asincronía nativa, lo que mejora la velocidad y
+      escalabilidad del sistema \parencite{fastapi2024}.
+      \item SQLite: base de datos relacional embebida, ligera y de código
+      abierto, utilizada para almacenar configuraciones, métricas e históricos de
+      predicciones sin necesidad de un servidor adicional \parencite{sqlite2023}.
+      \item Streamlit: biblioteca orientada a la construcción rápida de
+      interfaces gráficas y dashboards interactivos. Permite que el usuario final
+      visualice métricas, alertas y resultados, integrando datos provenientes de
+      los agentes \parencite{streamlit2024}.
+  \end{itemize}
+
+\subsection{Diagrama en bloques del sistema}
+
+  La figura~\ref{fig:arquitectura_general} presenta la arquitectura general del
+  sistema multiagente en la que se destacan los principales módulos y el flujo de
+  información entre ellos.
+
+  Como se mencionó anteriormente, el diseño adopta un enfoque modular y secuencial:
+  los agentes son invocados por el backend FastAPI, que actúa como núcleo coordinador
+  del pipeline de procesamiento y centraliza las respuestas del sistema. La base de
+  datos SQLite almacena configuraciones, métricas e históricos de predicción, y la
+  interfaz Streamlit ofrece una visualización interactiva para el usuario final.
+
+  Esta arquitectura modular garantiza la escalabilidad, la mantenibilidad y la
+  posibilidad de incorporar nuevos componentes sin alterar el funcionamiento general
+  del sistema.
+
+  El agente de predicción integra la información proveniente del mercado y del
+  análisis de sentimiento, mientras que el agente de recomendación combina señales
+  predictivas y de sentimiento para generar recomendaciones. El agente de alertas
+  evalúa los resultados y determina el nivel de severidad correspondiente. Los
+  módulos se comunican secuencialmente mediante FastAPI, y Streamlit constituye
+  la capa de visualización e interacción con el usuario.
+  
+\begin{figure}[H]
+\centering
+\begin{adjustbox}{max totalsize={0.92\textwidth}{0.42\textheight}}
+\begin{tikzpicture}[
+    node distance=8mm and 10mm,
+    box/.style={draw, rounded corners=2mm, align=center, font=\scriptsize, inner sep=3pt, fill=gray!10},
+    arrow/.style={-Latex, thick},
+    every node/.style={font=\scriptsize}
+]
+
+% --- Fila superior: agentes fuente ---
+  \node[box] (market) {Agente de mercado \\ (datos financieros)};
+  \node[box, right=of market] (pred) {Agente de predicción \\ (ensemble clasificadores)};     
+  \node[box, right=of pred] (news) {Agente de sentimiento \\ (NLP ensemble)};
+
+  % --- Segunda fila: recomendación y alertas ---
+  \node[box, below=of pred] (reco) {Agente de recomendación \\ (señales y recomendaciones)};  
+  \node[box, right=of reco] (alert) {Agente de alertas \\ (detección de anomalías)};
+
+  % --- Fila intermedia: infraestructura ---
+  \node[box, below=of reco] (api) {Backend \\ FastAPI};
+  \node[box, right=of api] (db) {Base de datos \\ SQLite};
+
+  % --- Fila inferior: interfaz ---
+  \node[box, below=of api] (ui) {Interfaz gráfica \\ Streamlit};
+
+  % --- Conexiones principales ---
+  \draw[arrow] (market) -- (pred);
+  \draw[arrow] (news) -- (pred);
+  \draw[arrow] (pred) -- (reco);
+  \draw[arrow] (news) -- (reco);
+  \draw[arrow] (reco) -- (alert);
+  \draw[arrow] (alert) -- (api);
+
+  % --- Infraestructura ---
+  \draw[arrow] (api) -- (db);
+  \draw[arrow] (api) -- (ui);
+
+
+\end{tikzpicture}
+\end{adjustbox}
+
+\vspace{2pt}
+\caption{Arquitectura general del sistema multiagente.}
+\label{fig:arquitectura_general}
+\end{figure}
+
+
+\subsection{Pipeline secuencial y modularidad}
+
+El sistema opera bajo un paradigma de \textbf{pipeline secuencial}, en el que cada agente es invocado en orden por el backend FastAPI: primero el agente de mercado, luego el de predicción, sentimiento, recomendación y finalmente el de alertas. Este enfoque simplifica la depuración, garantiza la trazabilidad del flujo de datos y es suficiente para el prototipo desarrollado. La coordinación centralizada en FastAPI permite además gestionar los tiempos de respuesta y manejar errores de forma uniforme.
+
+La modularidad de la arquitectura permite reemplazar componentes (por ejemplo, migrar de SQLite a PostgreSQL o sustituir FinBERT por otro modelo NLP) sin afectar el funcionamiento del resto del sistema. De este modo, el prototipo combina simplicidad operativa con la posibilidad de escalar hacia entornos de producción más complejos.
+
+\section{Evaluación de riesgos y explicabilidad}
+
+  A continuación se describen los riesgos en las predicciones financieras, el
+  concepto de explicabilidad, riesgos operacionales y normativas de cumplimiento.
+
+  \subsection{Riesgos en predicciones financieras}
+
+  Los sistemas de IA aplicados a entornos financieros presentan riesgos técnicos,
+  éticos y operativos que pueden afectar la confiabilidad del modelo y la calidad
+  de las decisiones basadas en sus resultados. Entre los principales se destacan:
+
+  \begin{itemize}
+      \item {Sesgos en los datos}. Los modelos entrenados con información
+      histórica tienden a reproducir patrones y distorsiones del pasado, lo que
+      puede generar predicciones sesgadas por factores macroeconómicos, geográficos
+      o regulatorios \parencite{barredoarrieta2020explainable}. Un conjunto de datos
+      poco representativo puede inducir resultados injustos o incorrectos.
+
+      \item {Sobreajuste (overfitting)}. Se produce cuando el modelo se ajusta
+      excesivamente a los datos de entrenamiento y pierde capacidad de generalización
+      \parencite{goodfellow2016deep}. En el sistema desarrollado, este riesgo se
+      mitiga mediante \textit{walk-forward validation} con \textit{TimeSeriesSplit},
+      que respeta el orden temporal de los datos durante la evaluación.
+
+      \item {Dependencia excesiva de la automatización}. La confianza ciega
+      en modelos automatizados sin supervisión humana puede derivar en decisiones
+      inadecuadas ante eventos atípicos o ``cisnes negros'' \parencite{taleb2007black}.       
+      La intervención humana continúa siendo necesaria para contextualizar los
+      resultados.
+
+      \item {Riesgos de interpretación y comunicación}. En modelos de
+      \textit{ensemble}, las relaciones entre variables no siempre son evidentes.
+      Una comunicación deficiente de los resultados puede generar errores de juicio
+      o problemas de trazabilidad en auditorías.
+
+      \item {Riesgos de ciberseguridad y manipulación}. Los sistemas que
+      consumen datos desde APIs o portales de noticias pueden ser vulnerables a
+      contenido manipulado, lo que afecta la integridad de las predicciones.
+  \end{itemize}
+
+
+
+\subsection {Explicabilidad}
+
+  La explicabilidad (XAI, \textit{Explainable Artificial Intelligence}) busca hacer
+  comprensible el proceso mediante el cual un modelo llega a una predicción o
+  recomendación \parencite{arrieta2020explainable}. En contextos financieros, la
+  interpretabilidad es además una exigencia regulatoria vinculada a la transparencia,
+  la rendición de cuentas y la protección de los usuarios.
+
+  En este trabajo se incorporan diferentes enfoques de explicabilidad:
+
+  \begin{itemize}
+      \item {Importancia de características}. Los modelos del ensemble (Random Forest,        
+      Gradient Boosting, XGBoost y LightGBM) exponen la contribución relativa de cada
+      variable técnica a la predicción mediante \texttt{feature\_importances\_}. Esto
+      posibilita identificar qué indicadores (como volatilidad, RSI o MACD) tuvieron
+      mayor peso en una decisión concreta.
+
+      \item {Análisis de sensibilidad y correlación}. Estos métodos permiten evaluar
+      la estabilidad del modelo ante variaciones en sus variables de entrada y detectar       
+      relaciones entre indicadores financieros.
+
+      \item {Explicabilidad local y global}. Mientras la explicabilidad local justifica       
+      decisiones puntuales (por ejemplo, una alerta emitida un día específico), la
+      explicabilidad global caracteriza el comportamiento general del modelo. Ambas
+      perspectivas son necesarias para una gobernanza integral del sistema.
+
+      \item {Trazabilidad y auditoría}. Cada predicción y alerta se almacena en la
+      base de datos junto con sus parámetros asociados, lo que permite reconstruir el
+      proceso decisorio, una práctica fundamental en entornos regulados
+      \parencite{europeanbanking2022ai}.
+  \end{itemize}
+
+ \subsection {Riesgo operacional y robustez del modelo}
+
+  Los modelos financieros pueden fallar en condiciones fuera de distribución, como
+  crisis económicas o shocks inesperados. \textcite{danielsson2022artificial} subrayan        
+  que los algoritmos pueden degradarse abruptamente bajo estrés. La integración del
+  análisis de sentimiento y la explicabilidad mediante importancia de características
+  actúa como un mecanismo de alerta ante comportamientos inestables del modelo.
+
+
+\subsection{Cumplimiento regulatorio: Basilea III y BCRA Comunicación A 7724}
+
+El sistema debe alinearse con los estándares regulatorios locales e internacionales. En particular:
+
+\begin{itemize}
+    \item El {marco de Basilea III} establece lineamientos para la gestión del riesgo operativo y el uso controlado de modelos en los que destacan validación continua, documentación y gobierno del ciclo de vida \parencite{basileaIII}.
+
+    \item La {Comunicación A 7724 del BCRA} \parencite{bcra7724}
+ define requisitos mínimos de gestión de riesgos informáticos, entre ellos:
+    \begin{itemize}
+        \item Validación periódica del rendimiento del modelo.
+        \item Registro de parámetros y control de versiones.
+        \item Evaluación del impacto de decisiones automatizadas.
+        \item Mitigación del sobreajuste y la degradación temporal.
+    \end{itemize}
+\end{itemize}
+
+El sistema multiagente desarrollado incorpora mecanismos que se ajustan a las exigencias de Basilea III y con los requisitos de la Comunicación A 7724 del BCRA.

@@ -162,10 +162,11 @@ class MetricaModelo(Base):
         usuario_id: Usuario que ejecutó la predicción
         ticker: Símbolo del activo analizado
         modelo: Nombre del modelo utilizado
-        mse: Error cuadrático medio (MSE)
-        rmse: Raíz del error cuadrático medio (RMSE)
-        mape: Error porcentual absoluto medio (MAPE)
-        mae: Error absoluto medio (MAE)
+        accuracy: Exactitud general del clasificador
+        precision: Precisión de clase positiva (SUBIDA)
+        recall: Recall de clase positiva (SUBIDA)
+        f1: F1-Score (balance precision-recall)
+        auc: Área bajo la curva ROC (AUC-ROC)
         fecha: Fecha y hora del registro
     """
     __tablename__ = "metricas_modelo"
@@ -173,18 +174,19 @@ class MetricaModelo(Base):
     id = Column(Integer, primary_key=True, index=True)
     usuario_id = Column(Integer, ForeignKey("usuarios.id"), nullable=True)
     ticker = Column(String(20), nullable=False, index=True)
-    modelo = Column(String(50), default="regresion_lineal")
-    mse = Column(Float, nullable=True)
-    rmse = Column(Float, nullable=True)
-    mape = Column(Float, nullable=True)
-    mae = Column(Float, nullable=True)
+    modelo = Column(String(50), default="ensemble_clasificador")
+    accuracy = Column(Float, nullable=True)
+    precision = Column(Float, nullable=True)
+    recall = Column(Float, nullable=True)
+    f1 = Column(Float, nullable=True)
+    auc = Column(Float, nullable=True)
     fecha = Column(DateTime, default=datetime.utcnow)
 
     # Relación con usuario
     usuario = relationship("Usuario", back_populates="metricas")
 
     def __repr__(self):
-        return f"<MetricaModelo(id={self.id}, ticker='{self.ticker}', rmse={self.rmse})>"
+        return f"<MetricaModelo(id={self.id}, ticker='{self.ticker}', accuracy={self.accuracy})>"
 
 
 def get_db():

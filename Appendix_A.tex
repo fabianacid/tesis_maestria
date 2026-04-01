@@ -1,0 +1,53 @@
+\chapter{Comparación de objetivos planificados vs.\ realizados}
+\label{apx:objetivos}
+
+El objetivo general del trabajo fue diseñar e implementar un sistema multiagente
+inteligente que integrara análisis predictivo, procesamiento de noticias y generación de
+alertas personalizadas para el seguimiento de activos financieros.
+La tabla~\ref{tab:apx-objetivos} compara lo planificado con lo efectivamente implementado.
+
+\setlength{\extrarowheight}{6pt}
+\begin{table}[H]
+\centering
+\caption{Comparación de objetivos planificados vs.\ realizados.}
+\label{tab:apx-objetivos}
+\small
+\begin{tabular}{p{4.5cm}p{4.5cm}l}
+\toprule
+\textbf{Planificado} & \textbf{Realizado} & \textbf{Estado} \\
+\midrule
+5 agentes especializados & MarketAgent, ModelAgent, SentimentAgent, RecommendationAgent,
+AlertAgent & Cumplido \\
+\midrule
+ML para series temporales & Ensemble de clasificación binaria (RF, GB, XGB, LightGBM):
+Accuracy 57.0\%, F1 58.9\% & Cumplido \\
+\midrule
+NLP para análisis de sentimiento & Ensemble FinBERT (40\%) + VADER (25\%) + Lexicón (20\%) +
+TextBlob (15\%) & Cumplido \\
+\midrule
+Interfaz gráfica web & Dashboard Streamlit con visualización de métricas y alertas &
+Cumplido \\
+\midrule
+Evaluación con métricas de desempeño & 30 pruebas funcionales (100\% éxito), pruebas de
+carga hasta 50 usuarios & Cumplido \\
+\midrule
+Autenticación de usuarios & JWT con bcrypt & Cumplido \\
+\midrule
+Integridad de los datos & SQLAlchemy como ORM & Cumplido \\
+\midrule
+Trazabilidad de las operaciones & Logging & Cumplido \\
+\midrule
+Escalabilidad horizontal & No implementado (SQLite, sin Docker ni balanceo de carga) &
+Pendiente \\
+\midrule
+Alertas por correo electrónico & SMTP solo para recuperación de contraseña, no para alertas
+financieras & Parcial \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+El sistema resultante opera como un pipeline secuencial orquestado por FastAPI, donde cada
+agente se invoca en orden y los resultados se consolidan en una respuesta única al usuario.
+Si bien la arquitectura planificada contemplaba mayor autonomía entre agentes, el enfoque
+secuencial resultó suficiente para el prototipo y permitió simplificar la depuración y el
+mantenimiento.

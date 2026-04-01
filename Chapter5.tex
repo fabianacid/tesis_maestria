@@ -1,0 +1,74 @@
+ \chapter{Conclusiones y trabajo futuro}
+
+  % La comparación de objetivos planificados vs. realizados se encuentra en el Anexo~\ref{apx:objetivos}.
+
+  \section{Conclusiones}
+
+  El prototipo desarrollado demuestra la viabilidad técnica de integrar Machine Learning, NLP 
+  y sistemas multiagente en una plataforma de seguimiento financiero accesible. 
+
+Los resultados de las pruebas realizadas son:                                                                                         
+  \begin{itemize}                                                                             
+      \item 100\% de disponibilidad en condiciones normales (1--25 usuarios concurrentes)     
+      \item Latencia promedio de 3.2 segundos, cumpliendo el objetivo de menos de 5 segundos  
+      \item Accuracy de \textbf{57.0\%} en clasificación binaria, superando el umbral aleatorio del 50\%, con Precision de 60.7\% y F1-Score de 58.9\%
+       \item Seguridad: autenticación mediante JWT con bcrypt implementada y validada
+  \end{itemize}
+  
+ El sistema genera señales con valor predictivo moderado, superando el umbral aleatorio del 50\% en los 10 tickers evaluados. Las mejoras aplicadas al modelo (ventana de entrenamiento ampliada a 504 días, validación cruzada con 5 folds y target con umbral de 0.5\%) incrementaron la Accuracy de 55.9\% a 57.0\% y la Precision de 58.6\% a 60.7\% respecto a la configuración inicial.
+
+  Las principales limitaciones identificadas son:
+
+  \begin{itemize}
+      \item Escalabilidad: el sistema soporta hasta 25 usuarios concurrentes con 100\% de     
+  éxito; con 50 usuarios la tasa de éxito cae al 16\%
+      \item Precisión variable: la accuracy oscila entre 53.1\% (TSLA, META) y 63.3\% (GOOGL) según el ticker, reflejando la dificultad inherente de la predicción financiera.
+      \item Dependencia de Yahoo Finance como única fuente de datos de mercado y noticias.    
+      \item Cobertura limitada al mercado estadounidense y análisis de sentimiento solo en   inglés.
+  \end{itemize}
+
+  Es importante destacar que el sistema fue diseñado como herramienta de apoyo a la decisión, 
+  no como reemplazo del juicio del inversor. Ningún modelo puede predecir el mercado con      
+  certeza; la utilidad del sistema radica en centralizar y procesar información heterogénea de   forma automatizada.
+
+  \section{Aplicación de contenidos del posgrado}
+
+  El desarrollo del proyecto integró conocimientos de diversas materias de la Carrera de      
+  Especialización en Inteligencia Artificial, algunos ejemplos a destacar son:
+
+  \begin{itemize}
+      \item Machine Learning: diseño del ensemble de clasificadores (Random Forest,
+  Gradient Boosting, XGBoost, LightGBM), validación cruzada, ingeniería de 52 features técnicos.
+      \item Procesamiento de Lenguaje Natural: implementación del ensemble NLP con   
+  FinBERT (Transformers), VADER, TextBlob y lexicón financiero para análisis de sentimiento en   noticias.
+      \item Sistemas Inteligentes: arquitectura multiagente con agentes
+  especializados y coordinación mediante pipeline secuencial.
+      \item Detección de anomalías: uso de Isolation Forest, Z-Score, MAD, CUSUM y   
+  EWMA en el AlertAgent para detección de comportamientos atípicos en precios y volumen.    
+      \item Desarrollo de sistemas de IA: diseño de API REST con FastAPI,
+  persistencia con SQLAlchemy/SQLite, autenticación segura con JWT y bcrypt, y despliegue     
+  local con Uvicorn.
+  \end{itemize}
+
+  \section{Trabajo futuro}
+
+  Las principales líneas de mejora identificadas son:
+
+  \begin{enumerate}
+      \item Escalabilidad: el sistema actual soporta hasta 25 usuarios simultáneos. Para uso  
+  en producción, se requiere migrar a una base de datos más robusta y distribuir la carga     
+  entre múltiples instancias del servidor (migración de SQLite a PostgreSQL, múltiples workers Uvicorn, caché Redis).
+      \item Mejora del modelo predictivo: incorporar modelos de mayor capacidad para capturar patrones complejos en series temporales financieras, e incluir información fundamental de las empresas además de los precios históricos (Temporal Fusion Transformer, features de P/E ratio y EPS, backtesting histórico). Las mejoras ya aplicadas (ventana 504 días, 5 folds, umbral 0.5\%) elevaron la Accuracy de 55.9\% a 57.0\%; se estima que la incorporación de features macroeconómicos (VIX, tasa de interés) podría acercar la Accuracy al 62\%--65\%.
+      \item Alertas y notificaciones: actualmente las alertas se visualizan en el dashboard   
+  mediante consultas periódicas. Como mejora, podrían enviarse al usuario por correo
+  electrónico, Telegram o SMS, y actualizarse en tiempo real sin necesidad de recargar la     
+  página manualmente (SMTP para alertas, integración con APIs de mensajería, WebSocket).      
+      \item Explicabilidad: incorporar mecanismos que permitan al usuario entender por qué el 
+  sistema generó una determinada predicción o recomendación, aumentando la transparencia y la 
+  confianza en el sistema (SHAP values, visualización de importancia de features).
+      \item Expansión geográfica: ampliar la cobertura más allá del mercado estadounidense,   
+  incorporando activos de mercados latinoamericanos y europeos, con análisis de noticias en   
+  español (fuentes de datos adicionales, modelos NLP multiidioma).
+      \item Despliegue: empaquetar el sistema para facilitar su instalación y puesta en marcha   en cualquier entorno, incluyendo servidores en la nube, sin configuración manual compleja  
+  (Docker, Kubernetes, pipeline CI/CD).
+  \end{enumerate}

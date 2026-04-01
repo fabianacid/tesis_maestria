@@ -425,9 +425,11 @@ def _guardar_metricas(
             usuario_id=usuario_id,
             ticker=ticker,
             modelo=prediction.modelo,
-            rmse=prediction.rmse,
-            mape=prediction.mape,
-            mae=prediction.mae
+            accuracy=prediction.metricas_completas.accuracy,
+            precision=prediction.metricas_completas.precision,
+            recall=prediction.metricas_completas.recall,
+            f1=prediction.metricas_completas.f1,
+            auc=prediction.metricas_completas.auc,
         )
 
         db.add(metrica)
