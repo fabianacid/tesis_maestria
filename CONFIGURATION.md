@@ -174,10 +174,10 @@ SQL_ECHO=false
 
 ```bash
 # ModelAgent: Número de días históricos para entrenamiento
-MODEL_TRAINING_DAYS=252        # ~1 año de trading
+MODEL_TRAINING_DAYS=504        # ~2 años de trading
 
 # ModelAgent: Horizonte de predicción (días)
-MODEL_PREDICTION_HORIZON=5
+MODEL_PREDICTION_HORIZON=3
 
 # ModelAgent: Validación temporal (porcentaje para test)
 MODEL_TEST_SIZE=0.2

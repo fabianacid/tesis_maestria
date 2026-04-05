@@ -1038,7 +1038,7 @@ score_final = (score_finbert × 0.40) +
 
 **Ejemplo completo**:
 ```
-Para 10 noticias de AAPL:
+Para 7 noticias de AAPL:
 
 Noticia 1: "Apple beats earnings expectations"
 - VADER: 0.72
@@ -1060,7 +1060,7 @@ Score_2 = (-0.60×0.40) + (-0.45×0.25) + (-0.50×0.20) + (-0.30×0.15)
         = -0.240 - 0.113 - 0.100 - 0.045
         = -0.498
 
-... (continuar con las 10 noticias)
+... (continuar con las 7 noticias)
 
 Scores: [0.768, -0.498, 0.320, 0.150, -0.200, 0.410, 0.550, -0.100, 0.280, 0.350]
 
@@ -1089,7 +1089,7 @@ else:
 base = 0.5
 
 # Ajuste por número de noticias (máx +0.2)
-ajuste_cantidad = min(n_noticias / 10, 1.0) × 0.2
+ajuste_cantidad = min(n_noticias / 7, 1.0) × 0.2
 
 # Ajuste por acuerdo entre métodos (máx +0.3)
 scores_métodos = [score_finbert, score_vader, score_lexicon, score_textblob]
@@ -1105,7 +1105,7 @@ confianza_final ∈ [0.3, 0.9]
 
 **Ejemplo**:
 ```
-n_noticias = 10
+n_noticias = 7
 Scores para una noticia:
 - FinBERT: 0.85
 - VADER: 0.72
@@ -1946,7 +1946,7 @@ Usuario solicita análisis de TICKER
          ↓
 ┌────────────────────────────────────────┐
 │ 3. SentimentAgent                      │
-│   - Obtener 10 noticias recientes     │
+│   - Obtener 7 noticias recientes      │
 │   - Análisis con VADER + TextBlob +   │
 │     FinBERT + Lexicon                 │
 │   - Promedio ponderado:               │
@@ -2056,7 +2056,7 @@ Métricas del modelo:
 
 **PASO 3 - SentimentAgent**:
 ```
-Noticias obtenidas: 10
+Noticias obtenidas: 7
 
 Análisis por noticia (ejemplo):
 1. "Tesla expands production capacity"
@@ -2214,7 +2214,7 @@ Output: { tiene_alerta: false }
       "finbert": 0.22,
       "lexicon": 0.19
     },
-    "noticias_analizadas": 10
+    "noticias_analizadas": 7
   },
   "recomendacion": {
     "tipo": "compra",
