@@ -150,6 +150,10 @@ class FinancialLexicon:
         "excelente": 0.9, "excepcional": 0.9, "extraordinario": 0.85,
         "rally": 0.8, "boom": 0.85, "disparar": 0.8, "sobreponderar": 0.75,
         "strong buy": 1.0, "compra fuerte": 1.0, "outperform": 0.85,
+        # Inglés - muy positivos
+        "record": 0.9, "beats expectations": 0.95, "blowout": 0.9,
+        "surges": 0.85, "soars": 0.85, "jumps": 0.75, "skyrockets": 0.9,
+        "strong results": 0.85, "raised guidance": 0.9, "upgrade": 0.8,
 
         # Positivos (peso 0.5-0.79)
         "subir": 0.6, "crecimiento": 0.65, "ganancia": 0.7, "beneficio": 0.65,
@@ -158,10 +162,20 @@ class FinancialLexicon:
         "positivo": 0.6, "favorable": 0.55, "prometedor": 0.6, "atractivo": 0.55,
         "incremento": 0.55, "avance": 0.5, "progreso": 0.5, "éxito": 0.7,
         "buy": 0.7, "comprar": 0.7, "acumular": 0.65, "mantener": 0.3,
+        # Inglés - positivos
+        "growth": 0.65, "profit": 0.7, "revenue growth": 0.75, "earnings beat": 0.85,
+        "bullish": 0.75, "optimistic": 0.7, "recovery": 0.6, "expansion": 0.65,
+        "profitable": 0.7, "robust": 0.6, "solid": 0.55, "positive": 0.6,
+        "increase": 0.55, "gain": 0.6, "rise": 0.55, "advances": 0.5,
+        "success": 0.7, "innovative": 0.6, "breakthrough": 0.8, "partnership": 0.55,
+        "demand": 0.5, "acquisition": 0.55, "dividend": 0.4, "buyback": 0.6,
 
         # Ligeramente positivos (peso 0.2-0.49)
         "estable": 0.3, "resistente": 0.35, "sostenido": 0.3, "moderado": 0.25,
         "neutral positivo": 0.35, "hold": 0.2, "dividendo": 0.4,
+        # Inglés - ligeramente positivos
+        "stable": 0.3, "resilient": 0.35, "steady": 0.3, "moderate": 0.25,
+        "meets expectations": 0.35, "in line": 0.2,
     }
 
     # Términos negativos con pesos
@@ -170,6 +184,10 @@ class FinancialLexicon:
         "colapso": -0.95, "quiebra": -1.0, "bancarrota": -1.0, "fraude": -0.95,
         "crisis": -0.85, "desplome": -0.9, "crash": -0.9, "pánico": -0.85,
         "strong sell": -1.0, "venta fuerte": -1.0, "underperform": -0.85,
+        # Inglés - muy negativos
+        "bankruptcy": -1.0, "fraud": -0.95, "collapse": -0.95, "scandal": -0.9,
+        "plunges": -0.9, "crashes": -0.9, "catastrophic": -0.9,
+        "earnings miss": -0.85, "guidance cut": -0.9, "downgrade": -0.8,
 
         # Negativos (peso -0.5 a -0.79)
         "bajar": -0.6, "pérdida": -0.7, "caída": -0.65, "declive": -0.6,
@@ -178,10 +196,22 @@ class FinancialLexicon:
         "riesgo": -0.5, "incertidumbre": -0.5, "volatilidad": -0.45,
         "reducir": -0.55, "recorte": -0.5, "advertencia": -0.6, "alerta": -0.55,
         "sell": -0.7, "vender": -0.7, "evitar": -0.65,
+        # Inglés - negativos
+        "loss": -0.7, "decline": -0.65, "drop": -0.6, "falls": -0.6,
+        "bearish": -0.75, "pessimistic": -0.7, "recession": -0.75, "deficit": -0.55,
+        "weak": -0.55, "negative": -0.6, "risk": -0.5, "uncertainty": -0.5,
+        "warning": -0.6, "concern": -0.5, "layoffs": -0.65, "job cuts": -0.65,
+        "lawsuit": -0.6, "investigation": -0.55, "regulatory": -0.5,
+        "setback": -0.6, "headwinds": -0.55, "challenges": -0.4, "pressure": -0.45,
+        "miss": -0.65, "misses": -0.65, "disappoints": -0.7, "slows": -0.5,
+        "tariff": -0.55, "geopolitical": -0.4, "volatility": -0.45,
 
         # Ligeramente negativos (peso -0.2 a -0.49)
         "preocupación": -0.4, "cautela": -0.35, "presión": -0.35,
         "desafío": -0.3, "obstáculo": -0.35, "limitado": -0.25,
+        # Inglés - ligeramente negativos
+        "caution": -0.35, "cautious": -0.35, "limited": -0.25,
+        "slowing": -0.4, "below expectations": -0.55, "mixed": -0.2,
     }
 
     # Modificadores de intensidad
@@ -388,17 +418,24 @@ class SentimentAgent:
             # Analizar cada noticia
             all_scores: List[SentimentScore] = []
             analyzed_news: List[NewsItem] = []
+            news_scores_weighted: List[tuple] = []  # (score, relevancia)
 
             for news in news_items:
                 text = f"{news['titulo']}. {news.get('contenido', '')}"
+                relevancia = news.get('relevancia', 0.5)
 
                 # Analizar con cada modelo
                 model_scores = self._analizar_texto_ensemble(text)
+
+                # Escalar pesos de modelos por relevancia de la noticia
+                for s in model_scores:
+                    s.confidence = s.confidence * relevancia
                 all_scores.extend(model_scores)
 
-                # Calcular score promedio para esta noticia
+                # Calcular score promedio ponderado para esta noticia
                 if model_scores:
                     avg_score = np.mean([s.score for s in model_scores])
+                    news_scores_weighted.append((avg_score, relevancia))
                     analyzed_news.append(NewsItem(
                         title=news['titulo'],
                         source=news.get('fuente', 'Desconocida'),
@@ -406,12 +443,21 @@ class SentimentAgent:
                              else news['fecha'],
                         sentiment_score=avg_score,
                         sentiment_category=self._score_to_category(avg_score).value,
-                        relevance=news.get('relevancia', 0.5),
+                        relevance=relevancia,
                         entities=news.get('entidades', [])
                     ))
 
-            # Calcular ensemble final
-            final_score, final_confidence = self._calcular_ensemble(all_scores)
+            # Calcular score final ponderado por relevancia de cada noticia
+            if news_scores_weighted:
+                total_relevancia = sum(r for _, r in news_scores_weighted)
+                if total_relevancia > 0:
+                    weighted_final = sum(s * r for s, r in news_scores_weighted) / total_relevancia
+                else:
+                    weighted_final = np.mean([s for s, _ in news_scores_weighted])
+                _, final_confidence = self._calcular_ensemble(all_scores)
+                final_score = weighted_final
+            else:
+                final_score, final_confidence = self._calcular_ensemble(all_scores)
 
             # Determinar categoría
             category = self._score_to_category(final_score)
@@ -753,14 +799,26 @@ class SentimentAgent:
                         if not contenido:
                             contenido = content.get('description', titulo)
 
-                        # Calcular relevancia basada en tipo de noticia
+                        # Calcular relevancia: penalizar si el ticker no aparece en el título
+                        texto_busqueda = (titulo + ' ' + contenido).lower()
+                        ticker_en_texto = ticker.lower() in texto_busqueda
+                        # Mapas de nombre de empresa por ticker
+                        EMPRESA_NOMBRES = {
+                            'AAPL': 'apple', 'GOOGL': 'google', 'GOOG': 'google',
+                            'MSFT': 'microsoft', 'AMZN': 'amazon', 'TSLA': 'tesla',
+                            'META': 'meta', 'NVDA': 'nvidia', 'JPM': 'jpmorgan',
+                            'V': 'visa', 'WMT': 'walmart',
+                        }
+                        nombre_empresa = EMPRESA_NOMBRES.get(ticker.upper(), '')
+                        empresa_en_texto = nombre_empresa and nombre_empresa in texto_busqueda
+
                         news_type = content.get('contentType', item.get('type', 'STORY'))
-                        if news_type == 'STORY':
-                            relevancia = 0.8
-                        elif news_type == 'VIDEO':
-                            relevancia = 0.6
+                        base_relevancia = 0.8 if news_type == 'STORY' else (0.6 if news_type == 'VIDEO' else 0.7)
+
+                        if ticker_en_texto or empresa_en_texto:
+                            relevancia = base_relevancia
                         else:
-                            relevancia = 0.7
+                            relevancia = base_relevancia * 0.4  # penalizar noticias no relacionadas
 
                         # Extraer URL (yfinance 1.0: canonicalUrl o clickThroughUrl dentro de content)
                         canonical = content.get('canonicalUrl', {})
