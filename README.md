@@ -243,11 +243,6 @@ proyecto_final/
 ├── test_results/             # Resultados de pruebas
 │   ├── graficos/            # Gráficos (PDF/PNG)
 │   └── *.json               # Resultados en JSON
-├── Chapter1.tex             # Cap. 1: Introducción
-├── Chapter2.tex             # Cap. 2: Marco teórico
-├── Chapter3.tex             # Cap. 3: Diseño e implementación
-├── Chapter4.tex             # Cap. 4: Ensayos y resultados
-├── Chapter5.tex             # Cap. 5: Conclusiones y trabajo futuro
 ├── requirements.txt
 ├── requirements-test.txt     # Dependencias de testing
 ├── run_all_tests.bat        # Script Windows para ejecutar tests
