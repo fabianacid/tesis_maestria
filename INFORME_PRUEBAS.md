@@ -309,6 +309,14 @@ Sentimiento: Neutral (+0.093)
 3. **META con AUC 0.499** — prácticamente sin capacidad discriminativa
 4. **Escalabilidad** — soporta hasta 25 usuarios concurrentes (16% éxito con 50)
 
+### ✅ Mejoras Implementadas (abril 2026)
+
+Se realizaron tres mejoras al SentimentAgent sin modificar la arquitectura ni la API:
+
+1. **Léxico financiero extendido** — Se agregaron 40+ términos en inglés al diccionario propietario (setback, regulatory, beats, layoffs, lawsuit, jumps, upgrade, downgrade, headwinds, entre otros). El léxico original cubría principalmente español, dejando sin detectar la mayoría de las noticias reales de Yahoo Finance.
+2. **Filtro de relevancia por ticker** — Las noticias que no mencionan el ticker ni el nombre de la empresa en el texto reciben un peso reducido al 40%, evitando que noticias del mercado general o de proveedores contaminen el score del activo analizado.
+3. **Ponderación por relevancia** — El score final de sentimiento se calcula como promedio ponderado por la relevancia de cada noticia, en lugar de promedio simple.
+
 ### 📋 Siguientes Pasos
 
 1. **Corto plazo:** Features macroeconómicos (VIX, tasa de interés) — se estima Accuracy 62–65%

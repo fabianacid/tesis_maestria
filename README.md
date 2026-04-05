@@ -173,8 +173,10 @@ graph TB
      - **FinBERT** (40% peso) - Transformer especializado en finanzas
      - **VADER** (25% peso) - Análisis léxico
      - **TextBlob** (15% peso) - Polaridad general
-     - **Léxico Financiero** (20% peso) - 500+ términos propietarios
+     - **Léxico Financiero** (20% peso) - 500+ términos en español e inglés
    - Análisis de 7 noticias recientes de Yahoo Finance
+   - **Filtro de relevancia**: noticias sin mención directa del ticker/empresa reciben peso reducido (40%) para evitar contaminación por noticias del mercado general
+   - **Ponderación por relevancia**: el score final es promedio ponderado por relevancia de cada noticia
    - Detección de tendencia de sentimiento
    - Extracción de temas clave (earnings, M&A, regulatory)
    - Caché de 1 hora para optimizar
