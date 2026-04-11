@@ -713,15 +713,52 @@ def render_recommendation_card(recomendacion: Dict):
 
 
 def render_alert_card(alerta: Dict):
-    """Renderiza tarjeta de alerta."""
+    """Renderiza tarjeta de alerta con los 6 niveles de severidad."""
+    SEVERITY_CONFIG = {
+        "emergency": {
+            "label": "EMERGENCIA",
+            "bg": "#4a0010", "border": "#ff0033", "color": "#ffffff",
+            "icon": "🚨"
+        },
+        "critical": {
+            "label": "ALERTA CRÍTICA",
+            "bg": "#fff0f0", "border": "#dc3545", "color": "#721c24",
+            "icon": "🔴"
+        },
+        "high": {
+            "label": "ALERTA ALTA",
+            "bg": "#fff4e5", "border": "#e8700a", "color": "#7a3600",
+            "icon": "🟠"
+        },
+        "medium": {
+            "label": "ADVERTENCIA",
+            "bg": "#fffbe6", "border": "#ffc107", "color": "#856404",
+            "icon": "🟡"
+        },
+        "low": {
+            "label": "AVISO",
+            "bg": "#e8f4fd", "border": "#17a2b8", "color": "#0c5460",
+            "icon": "🔵"
+        },
+        "info": {
+            "label": "INFORMACIÓN",
+            "bg": "#f0f9f0", "border": "#28a745", "color": "#155724",
+            "icon": "🟢"
+        },
+    }
+
     if alerta['tiene_alerta']:
-        nivel = alerta['nivel']
-        if nivel == "critical":
-            st.error(f"**ALERTA CRÍTICA** - {alerta['mensaje']}")
-        elif nivel == "warning":
-            st.warning(f"**ADVERTENCIA** - {alerta['mensaje']}")
-        else:
-            st.info(f"**INFORMACIÓN** - {alerta['mensaje']}")
+        nivel = alerta.get('nivel', 'info')
+        cfg = SEVERITY_CONFIG.get(nivel, SEVERITY_CONFIG['info'])
+        st.markdown(
+            f"""<div style="background:{cfg['bg']};border-left:5px solid {cfg['border']};
+            border-radius:6px;padding:12px 16px;margin-bottom:8px;">
+            <span style="font-weight:700;color:{cfg['color']};">
+            {cfg['icon']} {cfg['label']}</span>
+            <span style="color:{cfg['color']};margin-left:8px;">{alerta['mensaje']}</span>
+            </div>""",
+            unsafe_allow_html=True
+        )
     else:
         st.success("Sin alertas activas para este activo")
 
@@ -808,8 +845,21 @@ def render_price_chart(ticker: str, prediction_data: Dict):
     st.plotly_chart(fig, use_container_width=True)
 
 
+TIPO_ALERTA_LABELS = {
+    "movimiento_precio": "Movimiento de Precio",
+    "pico_volatilidad": "Pico de Volatilidad",
+    "cambio_tendencia": "Cambio de Tendencia",
+    "anomalia_detectada": "Anomalía Detectada",
+    "volumen_inusual": "Volumen Inusual",
+    "cambio_sentimiento": "Cambio de Sentimiento",
+    "divergencia_prediccion": "Divergencia de Predicción",
+    "ruptura_correlacion": "Ruptura de Correlación",
+    "patron_detectado": "Patrón Detectado",
+}
+
+
 def render_alerts_history():
-    """Renderiza historial de alertas."""
+    """Renderiza historial de alertas con filtros por tipo."""
     st.markdown("<p class='section-header'>Historial de Alertas</p>", unsafe_allow_html=True)
 
     alerts = get_alerts()
@@ -823,28 +873,77 @@ def render_alerts_history():
     if 'fecha_creacion' in df.columns:
         df['fecha_creacion'] = pd.to_datetime(df['fecha_creacion']).dt.strftime('%Y-%m-%d %H:%M')
 
+    # --- Filtros ---
+    col_f1, col_f2, col_f3 = st.columns([2, 2, 1])
+
+    with col_f1:
+        tipos_disponibles = sorted(df['tipo'].dropna().unique().tolist())
+        etiquetas = [TIPO_ALERTA_LABELS.get(t, t) for t in tipos_disponibles]
+        tipo_seleccionados = st.multiselect(
+            "Filtrar por tipo de alerta",
+            options=tipos_disponibles,
+            default=tipos_disponibles,
+            format_func=lambda t: TIPO_ALERTA_LABELS.get(t, t),
+            key="filter_tipo"
+        )
+
+    with col_f2:
+        tickers_disponibles = sorted(df['ticker'].dropna().unique().tolist())
+        ticker_sel = st.multiselect(
+            "Filtrar por activo",
+            options=tickers_disponibles,
+            default=tickers_disponibles,
+            key="filter_ticker_hist"
+        )
+
+    with col_f3:
+        solo_no_leidas = st.checkbox("Solo no leídas", value=False, key="filter_leidas")
+
+    # Aplicar filtros
+    df_filtrado = df[df['tipo'].isin(tipo_seleccionados) & df['ticker'].isin(ticker_sel)]
+    if solo_no_leidas:
+        df_filtrado = df_filtrado[df_filtrado['leida'] == False]
+
+    st.caption(f"Mostrando {len(df_filtrado)} de {len(df)} alertas")
+
+    # Tabla con etiquetas legibles para el tipo
+    df_display = df_filtrado.copy()
+    df_display['tipo'] = df_display['tipo'].map(lambda t: TIPO_ALERTA_LABELS.get(t, t))
+    df_display['leida'] = df_display['leida'].map({True: "Leída", False: "Pendiente"})
+
     st.dataframe(
-        df[['ticker', 'tipo', 'mensaje', 'variacion_pct', 'leida', 'fecha_creacion']],
+        df_display[['ticker', 'tipo', 'mensaje', 'variacion_pct', 'leida', 'fecha_creacion']],
         use_container_width=True,
-        hide_index=True
+        hide_index=True,
+        column_config={
+            "ticker": st.column_config.TextColumn("Activo"),
+            "tipo": st.column_config.TextColumn("Tipo de Alerta"),
+            "mensaje": st.column_config.TextColumn("Mensaje", width="large"),
+            "variacion_pct": st.column_config.NumberColumn("Variación %", format="%.2f%%"),
+            "leida": st.column_config.TextColumn("Estado"),
+            "fecha_creacion": st.column_config.TextColumn("Fecha"),
+        }
     )
 
-    if len(df) > 0:
+    if len(df_filtrado) > 0:
         col1, col2 = st.columns(2)
 
         with col1:
-            tipo_counts = df['tipo'].value_counts()
+            tipo_counts = df_filtrado['tipo'].map(lambda t: TIPO_ALERTA_LABELS.get(t, t)).value_counts()
             fig = px.pie(
                 values=tipo_counts.values,
                 names=tipo_counts.index,
-                title="Distribución por Tipo",
-                color_discrete_sequence=['#ef4444', '#f59e0b', '#3b82f6']
+                title="Distribución por Tipo de Alerta",
+                color_discrete_sequence=[
+                    '#ef4444', '#f59e0b', '#3b82f6', '#10b981',
+                    '#8b5cf6', '#ec4899', '#14b8a6', '#f97316', '#6366f1'
+                ]
             )
             fig.update_layout(margin=dict(l=0, r=0, t=40, b=0))
             st.plotly_chart(fig, use_container_width=True)
 
         with col2:
-            ticker_counts = df['ticker'].value_counts().head(5)
+            ticker_counts = df_filtrado['ticker'].value_counts().head(5)
             fig = px.bar(
                 x=ticker_counts.index,
                 y=ticker_counts.values,
