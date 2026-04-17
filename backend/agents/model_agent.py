@@ -18,6 +18,7 @@ Arquitectura:
 - Métricas de clasificación: Accuracy, Precision, Recall, F1-Score, AUC-ROC
 """
 import logging
+import threading
 from datetime import datetime
 from typing import Dict, Any, Optional, Tuple, List
 from dataclasses import dataclass, field
@@ -219,6 +220,11 @@ class ModelAgent:
         self.pesos_modelos: Dict[str, float] = {}
         self.metricas_historicas: Dict[str, List[float]] = {}
 
+        # Caché de predicciones: evita re-entrenar si los datos no cambiaron
+        # Clave: ticker → (last_date, data_len, PredictionResult)
+        self._prediction_cache: Dict[str, Tuple[str, int, Any]] = {}
+        self._cache_lock = threading.Lock()
+
         # Verificar disponibilidad de modelos
         self.modelos_disponibles = [
             ModelType.LINEAR, ModelType.RIDGE, ModelType.RANDOM_FOREST,
@@ -274,6 +280,16 @@ class ModelAgent:
             if len(precios) < 30:
                 logger.warning(f"[{ticker}] Datos insuficientes: {len(precios)}")
                 return self._prediccion_fallback(precios, ticker)
+
+            # Verificar caché: si los datos no cambiaron, devolver resultado anterior
+            last_date = str(precios.index[-1].date()) if hasattr(precios.index[-1], 'date') else str(precios.index[-1])
+            data_len = len(precios)
+            with self._cache_lock:
+                if ticker in self._prediction_cache:
+                    cached_date, cached_len, cached_result = self._prediction_cache[ticker]
+                    if cached_date == last_date and cached_len == data_len:
+                        logger.info(f"[{ticker}] ModelAgent: usando predicción en caché ({last_date})")
+                        return cached_result
 
             # Feature engineering
             X, y, feature_names = self._crear_features(precios)
@@ -388,6 +404,10 @@ class ModelAgent:
                 f"(Var: {variacion_pct:.2f}%, Accuracy: {mejor_metrics.accuracy:.2%}, "
                 f"Prob subida: {prob_subida:.2%})"
             )
+
+            # Guardar en caché para requests subsiguientes del mismo día
+            with self._cache_lock:
+                self._prediction_cache[ticker] = (last_date, data_len, resultado)
 
             return resultado
 

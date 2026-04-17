@@ -14,8 +14,10 @@ El pipeline orquesta los cinco agentes del sistema:
 El resultado es una respuesta unificada con toda la información
 del análisis, incluyendo explicaciones para cumplir con XAI.
 """
+import asyncio
 import logging
 from datetime import datetime
+from functools import partial
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
@@ -132,12 +134,21 @@ async def predict_ticker(
     logger.info(f"Iniciando análisis para {ticker}")
 
     try:
+        loop = asyncio.get_event_loop()
+
         # ========================================
-        # PASO 1: Agente de Mercado
+        # PASOS 1 + 3 EN PARALELO: Market y Sentiment
+        # SentimentAgent no depende de MarketAgent, se ejecutan simultáneamente
         # ========================================
-        market_data = market_agent.obtener_datos(
-            ticker,
-            forzar_actualizacion=forzar_actualizacion
+        market_data, sentiment = await asyncio.gather(
+            loop.run_in_executor(
+                None,
+                partial(market_agent.obtener_datos, ticker, forzar_actualizacion)
+            ),
+            loop.run_in_executor(
+                None,
+                partial(sentiment_agent.analizar, ticker)
+            )
         )
 
         if market_data is None:
@@ -147,13 +158,14 @@ async def predict_ticker(
             )
 
         logger.info(f"[{ticker}] MarketAgent: Datos obtenidos correctamente")
+        logger.info(f"[{ticker}] SentimentAgent: Sentimiento={sentiment.sentimiento}")
 
         # ========================================
-        # PASO 2: Agente de Modelo
+        # PASO 2: Agente de Modelo (necesita market_data.precios)
         # ========================================
-        prediction = model_agent.predecir(
-            precios=market_data.precios,
-            ticker=ticker
+        prediction = await loop.run_in_executor(
+            None,
+            partial(model_agent.predecir, market_data.precios, ticker)
         )
 
         if prediction is None:
@@ -184,12 +196,6 @@ async def predict_ticker(
             # Persistir métricas si hay usuario autenticado
             if current_user:
                 _guardar_metricas(db, current_user.id, ticker, prediction)
-
-        # ========================================
-        # PASO 3: Agente de Sentimiento
-        # ========================================
-        sentiment = sentiment_agent.analizar(ticker)
-        logger.info(f"[{ticker}] SentimentAgent: Sentimiento={sentiment.sentimiento}")
 
         # ========================================
         # PASO 4: Agente de Recomendación
