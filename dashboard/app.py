@@ -53,6 +53,15 @@ st.markdown("""
         font-weight: 600;
         color: #1a1a2e;
     }
+    [data-testid="stMetricValue"] {
+        font-size: 1.05rem !important;
+    }
+    [data-testid="stMetricLabel"] {
+        font-size: 0.78rem !important;
+    }
+    [data-testid="stMetricDelta"] {
+        font-size: 0.82rem !important;
+    }
     .positive { color: #28a745; }
     .negative { color: #dc3545; }
     .neutral { color: #6c757d; }
@@ -76,6 +85,19 @@ st.markdown("""
 
 # URL del backend
 API_URL = "http://localhost:8000"
+
+
+def fmt_num(value, decimals=2):
+    return f"{value:.{decimals}f}".replace(".", ",")
+
+
+def fmt_price(value, decimals=2):
+    return f"${fmt_num(value, decimals)}"
+
+
+def fmt_pct(value, decimals=2, sign=False):
+    s = "+" if sign and value >= 0 else ""
+    return f"{s}{fmt_num(value, decimals)}%"
 
 
 # ============================================
@@ -488,21 +510,35 @@ def render_market_metrics(mercado: Dict):
     with col1:
         variacion = mercado['variacion_diaria']
         delta_color = "normal" if variacion >= 0 else "inverse"
-        st.metric("Precio Actual", f"${mercado['ultimo_precio']:.2f}", f"{variacion:.2f}%", delta_color=delta_color)
+        st.metric("Precio Actual", fmt_price(mercado['ultimo_precio']), fmt_pct(variacion), delta_color=delta_color)
 
     with col2:
-        st.metric("Precio Anterior", f"${mercado['precio_anterior']:.2f}")
+        st.metric("Precio Anterior", fmt_price(mercado['precio_anterior']))
 
     with col3:
-        st.metric("Media Móvil (20)", f"${mercado['media_movil_20']:.2f}")
+        st.metric("Media Móvil (20)", fmt_price(mercado['media_movil_20']))
 
     with col4:
         senal = mercado['senal']
-        color_class = "positive" if senal == "alcista" else "negative" if senal == "bajista" else "neutral"
-        st.markdown(f"""
-            <div class='metric-label'>Señal Técnica</div>
-            <div class='metric-value {color_class}'>{senal.upper()}</div>
-        """, unsafe_allow_html=True)
+        st.metric(
+            "Señal Técnica",
+            senal.upper(),
+            help=(
+                "¿Qué significa en la práctica?\n\n"
+                "ALCISTA → La mayoría de los indicadores técnicos coinciden en que el precio tiene momentum positivo: "
+                "está por encima de sus promedios históricos, el volumen acompaña la suba y no hay señales de sobrecompra extrema. "
+                "Es una señal de que la tendencia de corto/mediano plazo favorece al comprador.\n\n"
+                "BAJISTA → Lo opuesto: el precio cae por debajo de sus promedios, el volumen confirma la baja o hay señales de debilidad.\n\n"
+                "NEUTRAL → Los indicadores se contradicen entre sí o el movimiento es demasiado pequeño para definir una dirección clara.\n\n"
+                "Cómo se calcula:\n"
+                "Se combinan 15+ indicadores en 4 grupos ponderados:\n"
+                "• Tendencia (35%): medias móviles, MACD, ADX\n"
+                "• Momentum (30%): RSI, Estocástico, Williams %R\n"
+                "• Volatilidad (15%): Bollinger Bands, ATR\n"
+                "• Volumen (20%): OBV, MFI, VWAP\n\n"
+                "Score ≥ 0,1 → ALCISTA | Score ≤ -0,1 → BAJISTA | Entre ambos → NEUTRAL"
+            )
+        )
 
 
 def render_prediction_card(prediccion: Dict, precio_actual: float = 0):
@@ -512,26 +548,38 @@ def render_prediction_card(prediccion: Dict, precio_actual: float = 0):
     variacion = prediccion['variacion_pct']
     precio_predicho = prediccion['precio_predicho']
 
-    # Determinar dirección
+    # Determinar dirección (zona neutra: |variacion| <= 0.5% = ruido de mercado)
     if variacion > 2:
         direccion = "ALZA SIGNIFICATIVA"
         color_class = "positive"
-    elif variacion > 0:
+    elif variacion > 0.5:
         direccion = "Alza moderada"
         color_class = "positive"
     elif variacion < -2:
         direccion = "BAJA SIGNIFICATIVA"
         color_class = "negative"
-    elif variacion < 0:
+    elif variacion < -0.5:
         direccion = "Baja moderada"
         color_class = "negative"
     else:
         direccion = "Estable"
         color_class = "neutral"
 
-    # Calcular probabilidad de subida basada en variación
-    prob_subida = 50 + (variacion / 2)  # Aproximación desde la variación
-    prob_subida = max(0, min(100, prob_subida))  # Limitar entre 0-100
+    # Usar probabilidad real del modelo si está disponible
+    prob_subida_real = prediccion.get('prob_subida')
+    if prob_subida_real is not None:
+        prob_subida = prob_subida_real * 100
+    else:
+        prob_subida = 50 + (variacion / 2)
+    prob_subida = max(0, min(100, prob_subida))
+    prob_bajada = 100 - prob_subida
+
+    if variacion > 0:
+        dir_label = "⬆️ SUBIDA"
+        prob_display = prob_subida
+    else:
+        dir_label = "⬇️ BAJADA"
+        prob_display = prob_bajada
 
     st.markdown(f"""
         <div class='card'>
@@ -540,25 +588,40 @@ def render_prediction_card(prediccion: Dict, precio_actual: float = 0):
             <div style='display:flex;gap:40px;flex-wrap:wrap;margin-bottom:15px'>
                 <div>
                     <div class='metric-label'>Precio Actual</div>
-                    <div style='font-size:1.3rem;font-weight:600'>${precio_actual:.2f}</div>
+                    <div style='font-size:1.3rem;font-weight:600'>{fmt_price(precio_actual)}</div>
                 </div>
                 <div>
                     <div class='metric-label'>Precio Proyectado (3 días)</div>
-                    <div class='metric-value {color_class}'>${precio_predicho:.2f}</div>
+                    <div class='metric-value {color_class}'>{fmt_price(precio_predicho)}</div>
                 </div>
                 <div>
                     <div class='metric-label'>Variación Esperada</div>
-                    <div class='metric-value {color_class}'>{variacion:+.2f}%</div>
-                </div>
-            </div>
-            <div style='background:#f8f9fa;padding:10px;border-radius:8px;margin-top:10px'>
-                <div style='font-size:0.85rem;color:#666'>Probabilidad de dirección:</div>
-                <div style='font-size:1.1rem;font-weight:600;margin-top:5px'>
-                    {'⬆️ SUBIDA' if variacion > 0 else '⬇️ BAJADA'}: {abs(prob_subida):.1f}%
+                    <div class='metric-value {color_class}'>{fmt_pct(variacion, sign=True)}</div>
                 </div>
             </div>
         </div>
     """, unsafe_allow_html=True)
+
+    precision_val = prediccion.get('metricas', {}).get('precision', 0) * 100
+    accuracy_val = prediccion.get('metricas', {}).get('accuracy', 0) * 100
+    st.metric(
+        "Probabilidad de dirección",
+        f"{dir_label}: {fmt_num(prob_display, 1)}%",
+        help=(
+            "Cada modelo genera una probabilidad de subida con predict_proba().\n\n"
+            "Resultado = promedio ponderado:\n"
+            "P(subida) = Σ ( prob_modelo × peso_modelo )\n\n"
+            "El peso de cada modelo es proporcional a su accuracy en validación cruzada temporal (5 folds).\n\n"
+            "Modelos: Random Forest · Gradient Boosting · XGBoost · LightGBM\n\n"
+            "P(bajada) = 1 − P(subida)\n\n"
+            "⚠️ Esta probabilidad refleja la CONFIANZA del modelo, no su tasa de acierto histórica.\n"
+            f"Precisión histórica: {fmt_num(precision_val, 1)}% | Accuracy: {fmt_num(accuracy_val, 1)}%"
+        )
+    )
+    st.caption(
+        f"⚠️ Precisión histórica: {fmt_num(precision_val, 1)}% | Accuracy: {fmt_num(accuracy_val, 1)}%"
+        " — La probabilidad refleja la confianza del modelo, no su tasa de acierto histórica."
+    )
 
     # Detalles de modelos
     with st.expander("Ver detalles de los modelos de IA"):
@@ -583,13 +646,18 @@ def render_prediction_card(prediccion: Dict, precio_actual: float = 0):
             for modelo, pred in predicciones.items():
                 peso = pesos.get(modelo, 0) * 100
                 nombre = nombres_modelos.get(modelo, modelo)
-                data.append({"Modelo": nombre, "P(Subida)": f"{pred:.0%}", "Peso": f"{peso:.1f}%"})
+                data.append({"Modelo": nombre, "P(Subida)": f"{fmt_num(pred * 100, 0)}%", "Peso": f"{fmt_num(peso, 1)}%"})
 
             df = pd.DataFrame(data)
             st.dataframe(df, use_container_width=True, hide_index=True)
 
             mejor = prediccion.get('parametros', {}).get('mejor_modelo', 'N/A')
-            st.info(f"Modelo con mejor rendimiento: **{nombres_modelos.get(mejor, mejor)}**")
+            st.info(
+                f"Modelo con mejor rendimiento: **{nombres_modelos.get(mejor, mejor)}**  \n"
+                "ℹ️ Se elige el modelo con mayor **accuracy** promedio en validación cruzada temporal (5 folds). "
+                "Ese accuracy determina también su peso en el ensemble: mayor accuracy = mayor influencia en la probabilidad final. "
+                "No necesariamente es el que predice con mayor confianza hoy, sino el que históricamente acertó más veces."
+            )
 
         # Métricas de clasificación (predicción de dirección)
         st.markdown("---")
@@ -599,16 +667,16 @@ def render_prediction_card(prediccion: Dict, precio_actual: float = 0):
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             accuracy = metricas.get('accuracy', 0) * 100
-            st.metric("Accuracy", f"{accuracy:.1f}%", help="% de veces que predice correctamente si sube o baja")
+            st.metric("Accuracy", f"{fmt_num(accuracy, 1)}%", help="De todas las predicciones (SUBIDA y BAJADA), % de veces que el modelo acertó. Un modelo aleatorio obtendría ~50%.")
         with col2:
             precision = metricas.get('precision', 0) * 100
-            st.metric("Precision", f"{precision:.1f}%", help="Cuando predice SUBIDA, % de veces que acierta")
+            st.metric("Precisión", f"{fmt_num(precision, 1)}%", help="De las veces que el modelo predijo SUBIDA, % en que realmente subió. Baja precisión = muchas falsas alarmas de subida.")
         with col3:
             recall = metricas.get('recall', 0) * 100
-            st.metric("Recall", f"{recall:.1f}%", help="% de subidas reales que detecta correctamente")
+            st.metric("Recall", f"{fmt_num(recall, 1)}%", help="De todas las subidas reales que ocurrieron, % que el modelo logró detectar. Bajo recall = el modelo se pierde muchas subidas.")
         with col4:
             f1 = metricas.get('f1', 0) * 100
-            st.metric("F1-Score", f"{f1:.1f}%", help="Balance entre Precision y Recall")
+            st.metric("F1-Score", f"{fmt_num(f1, 1)}%", help="Media armónica de Precisión y Recall: 2×(P×R)/(P+R). Penaliza fuertemente cuando uno de los dos es bajo. Valor mostrado: promedio de los 5 folds de validación cruzada temporal.")
 
 
 def render_sentiment_card(sentimiento: Dict):
@@ -645,9 +713,44 @@ def render_sentiment_card(sentimiento: Dict):
 
         col1, col2 = st.columns(2)
         with col1:
-            st.metric("Score", f"{sentimiento['score']:.4f}")
+            st.metric(
+                "Score",
+                f"{fmt_num(sentimiento['score'], 4)}",
+                help=(
+                    "Rango: -1 (muy negativo) a +1 (muy positivo).\n\n"
+                    "Paso 1 — Cada noticia es analizada por 4 modelos:\n"
+                    "  · FinBERT  × 0.40  (IA especializada en finanzas)\n"
+                    "  · VADER    × 0.25  (léxico de palabras positivas/negativas)\n"
+                    "  · Lexicon  × 0.20  (diccionario de términos bursátiles)\n"
+                    "  · TextBlob × 0.15  (polaridad general del texto)\n"
+                    "  → score_noticia = Σ(score_modelo × peso) / Σ(pesos activos)\n\n"
+                    "Paso 2 — Cada noticia tiene un peso de relevancia según\n"
+                    "  cuántas veces menciona el ticker y su contexto financiero.\n"
+                    "  → score_final = Σ(score_noticia × relevancia) / Σ(relevancias)\n\n"
+                    "Clasificación del score final:\n"
+                    "  ≥ 0.60  → Muy positivo\n"
+                    "  ≥ 0.25  → Positivo\n"
+                    "  ≥ 0.10  → Ligeramente positivo\n"
+                    " -0.10 a 0.10 → Neutral\n"
+                    "  ≤ -0.10 → Ligeramente negativo\n"
+                    "  ≤ -0.25 → Negativo\n"
+                    "  ≤ -0.60 → Muy negativo"
+                )
+            )
         with col2:
-            st.metric("Confianza", f"{sentimiento['confianza']:.1%}")
+            st.metric(
+                "Confianza",
+                f"{fmt_num(sentimiento['confianza'] * 100, 1)}%",
+                help=(
+                    "Promedio ponderado de la confianza individual de cada modelo:\n"
+                    "  Σ(confianza_modelo × peso_modelo) / Σ(pesos)\n\n"
+                    "Cada modelo devuelve su propia certeza (ej: FinBERT da probabilidad 0-1).\n"
+                    "Los modelos con mayor peso (FinBERT × 0.40) influyen más en el resultado.\n\n"
+                    "Ajuste por noticias reales: +0.30 (techo en 95%) cuando se analizan\n"
+                    "noticias reales de Yahoo Finance, por mayor calidad de los datos.\n\n"
+                    "95% = alta certeza de los modelos + noticias reales disponibles."
+                )
+            )
 
 
 def render_recommendation_card(recomendacion: Dict):
@@ -694,7 +797,7 @@ def render_recommendation_card(recomendacion: Dict):
         porque = porque.replace('📊', '').replace('✅', '').replace('❌', '').replace('🎯', '')
         porque = porque.replace('📈', '').replace('📉', '').replace('➡️', '')
         porque = porque.replace('🤖', '').replace('😊', '').replace('😟', '').replace('😐', '')
-        porque = porque.replace('🛡️', '').replace('⚠️', '').replace('1️⃣', '1.').replace('2️⃣', '2.').replace('3️⃣', '3.')
+        porque = porque.replace('🛡️', '').replace('⚠️', '').replace('1️⃣', '1.').replace('2️⃣', '2.').replace('3️⃣', '3.').replace('4️⃣', '4.')
 
         if porque:
             st.markdown(porque)
@@ -702,14 +805,98 @@ def render_recommendation_card(recomendacion: Dict):
         st.markdown("---")
         st.markdown("**Factores considerados:**")
         factores = recomendacion.get('factores', {})
-        col1, col2, col3 = st.columns(3)
+        composite = factores.get('composite_score', None)
+        risk_lvl = factores.get('risk_level', 'N/A')
+        prob = factores.get('prob_profit', 0) * 100
+
+        # Fila 1: señal técnica + variación esperada
+        col1, col2 = st.columns(2)
         with col1:
-            st.metric("Señal Técnica", factores.get('senal_mercado', 'N/A').upper())
+            senal_raw = factores.get('senal_mercado', 'N/A')
+            senal_display = senal_raw.capitalize()
+            st.metric(
+                "Señal Técnica",
+                senal_display,
+                help=(
+                    "¿Qué significa en la práctica?\n\n"
+                    "ALCISTA → La mayoría de los indicadores técnicos coinciden en que el precio tiene momentum positivo: "
+                    "está por encima de sus promedios históricos, el volumen acompaña la suba y no hay señales de sobrecompra extrema.\n\n"
+                    "BAJISTA → El precio cae por debajo de sus promedios, el volumen confirma la baja o hay señales de debilidad.\n\n"
+                    "NEUTRAL → Los indicadores se contradicen entre sí o el movimiento es demasiado pequeño para definir dirección.\n\n"
+                    "Peso en la recomendación final: 40%"
+                )
+            )
         with col2:
-            st.metric("Variación Esperada", f"{factores.get('variacion_pct', 0):.2f}%")
+            st.metric(
+                "Variación Esperada",
+                fmt_pct(factores.get('variacion_pct', 0)),
+                help=(
+                    "Cambio porcentual predicho por el modelo ML para los próximos 3 días.\n\n"
+                    "Peso en la recomendación: 35%\n\n"
+                    "Ensemble de 4 modelos (cada uno vota con su propia predicción):\n"
+                    "Random Forest + Gradient Boosting + XGBoost + LightGBM\n\n"
+                    "Negativo = bajada esperada  |  Positivo = subida esperada"
+                )
+            )
+
+        # Fila 2: probabilidad de ganancia + score compuesto
+        col3, col4 = st.columns(2)
         with col3:
-            prob = factores.get('prob_profit', 0) * 100
-            st.metric("Prob. Ganancia", f"{prob:.0f}%")
+            if prob >= 50:
+                prob_label = f"{fmt_num(prob, 0)}% (favorable)"
+            else:
+                prob_label = f"{fmt_num(prob, 0)}% (desfavorable)"
+            st.metric(
+                "Prob. Ganancia",
+                prob_label,
+                help=(
+                    "Probabilidad estimada de que la operación resulte en ganancia.\n\n"
+                    "Fórmula:\n"
+                    "P = 0.5 + (score × 0.3) + (confianza_ML × 0.1) − (riesgo × 0.1)\n"
+                    "Acotada entre 20% y 80% para evitar extremos irreales.\n\n"
+                    "Variables:\n"
+                    "• score: puntuación compuesta del análisis [-1, +1]\n"
+                    "• confianza_ML: certeza del modelo de machine learning [0, 1]\n"
+                    "• riesgo: score de riesgo global (volatilidad + VaR + régimen) [0, 1]\n\n"
+                    "Interpretación:\n"
+                    "> 50% → la operación tiene más probabilidades de ganar que de perder\n"
+                    "< 50% → la operación tiene más probabilidades de perder que de ganar"
+                )
+            )
+        with col4:
+            if composite is not None:
+                if composite > 0.3:
+                    score_label = f"{fmt_num(composite, 2)} (muy favorable)"
+                elif composite > 0.1:
+                    score_label = f"{fmt_num(composite, 2)} (favorable)"
+                elif composite > -0.1:
+                    score_label = f"{fmt_num(composite, 2)} (neutral)"
+                elif composite > -0.3:
+                    score_label = f"{fmt_num(composite, 2)} (levemente desfavorable)"
+                else:
+                    score_label = f"{fmt_num(composite, 2)} (desfavorable)"
+                st.metric(
+                    "Score Compuesto",
+                    score_label,
+                    help=(
+                        "Puntuación final [-1, +1] que combina los 4 grupos de factores ponderados:\n\n"
+                        "score = Σ (valor_factor × peso_factor)\n\n"
+                        "Grupos y pesos:\n"
+                        "• Técnico (40%): tendencia, momentum, volatilidad, volumen, soporte/resistencia\n"
+                        "• Predicción ML (35%): señal del modelo, confianza, acuerdo entre modelos\n"
+                        "• Sentimiento (15%): score NLP, tendencia, impacto de noticias\n"
+                        "• Riesgo (10%): retorno ajustado, régimen de mercado, correlación\n\n"
+                        "Umbrales de decisión:\n"
+                        "> +0.50 → Compra fuerte\n"
+                        "+0.20 a +0.50 → Compra\n"
+                        "+0.05 a +0.20 → Compra débil\n"
+                        "-0.05 a +0.05 → Mantener\n"
+                        "-0.20 a -0.05 → Venta débil\n"
+                        "-0.50 a -0.20 → Venta\n"
+                        "< -0.50 → Venta fuerte\n\n"
+                        f"Nivel de riesgo actual: {risk_lvl}"
+                    )
+                )
 
 
 def render_alert_card(alerta: Dict):

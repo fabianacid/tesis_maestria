@@ -1,0 +1,16 @@
+{
+  "capital_inicial": 10000.0,
+  "capital_final": 9618.51,
+  "retorno_total_pct": -3.81,
+  "retorno_buy_hold_pct": 6.95,
+  "diferencia_vs_buyhold_pct": -10.77,
+  "sharpe_ratio": -0.473,
+  "max_drawdown_pct": -14.34,
+  "pct_predicciones_correctas": 50.39,
+  "predicciones_correctas": 65,
+  "total_predicciones": 129,
+  "n_compras": 17,
+  "n_ventas": 16,
+  "dias_simulados": 129,
+  "ticker": "AAPL"
+}

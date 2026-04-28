@@ -1,0 +1,18 @@
+{
+  "capital_inicial": 10000.0,
+  "capital_final": 9073.55,
+  "retorno_total_pct": -9.26,
+  "retorno_buy_hold_pct": -17.04,
+  "diferencia_vs_buyhold_pct": 7.78,
+  "sharpe_ratio": -2.813,
+  "max_drawdown_pct": -10.17,
+  "pct_predicciones_correctas": 43.41,
+  "predicciones_correctas": 56,
+  "total_predicciones": 129,
+  "n_compras": 4,
+  "n_ventas": 3,
+  "n_stoploss": 1,
+  "n_extensiones": 1,
+  "dias_simulados": 129,
+  "ticker": "MSFT"
+}

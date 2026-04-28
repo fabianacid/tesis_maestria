@@ -165,7 +165,7 @@ async def predict_ticker(
         # ========================================
         prediction = await loop.run_in_executor(
             None,
-            partial(model_agent.predecir, market_data.precios, ticker)
+            partial(model_agent.predecir, market_data.precios, ticker, forzar_actualizacion=forzar_actualizacion)
         )
 
         if prediction is None:
@@ -175,6 +175,7 @@ async def predict_ticker(
             accuracy = precision = recall = f1 = auc = 0.0
             parametros = {}
             modelos_usados = {}
+            prob_subida_real = 0.5
             logger.warning(f"[{ticker}] ModelAgent: Predicción no disponible")
         else:
             precio_predicho = prediction.precio_predicho
@@ -191,6 +192,7 @@ async def predict_ticker(
                 "predicciones": prediction.predicciones_modelos,
                 "pesos": prediction.pesos_ensemble
             }
+            prob_subida_real = prediction.prob_subida
             logger.info(f"[{ticker}] ModelAgent: Predicción generada")
 
             # Persistir métricas si hay usuario autenticado
@@ -284,7 +286,8 @@ async def predict_ticker(
                     "auc": auc
                 },
                 "parametros": parametros,
-                "modelos_detalle": modelos_usados
+                "modelos_detalle": modelos_usados,
+                "prob_subida": prob_subida_real
             },
             sentimiento=SentimentResponse(
                 ticker=ticker,

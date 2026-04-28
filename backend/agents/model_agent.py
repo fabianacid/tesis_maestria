@@ -32,6 +32,7 @@ from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.preprocessing import StandardScaler, RobustScaler
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
 from sklearn.model_selection import TimeSeriesSplit
+from sklearn.calibration import CalibratedClassifierCV
 
 # Opcional: Modelos avanzados
 try:
@@ -50,7 +51,7 @@ try:
     import torch
     import torch.nn as nn
     TORCH_AVAILABLE = True
-except ImportError:
+except (ImportError, OSError):
     TORCH_AVAILABLE = False
 
 warnings.filterwarnings('ignore')
@@ -109,6 +110,7 @@ class PredictionResult:
     features_importance: Dict[str, float] = field(default_factory=dict)
     tendencia: str = "lateral"
     confianza: float = 0.5
+    prob_subida: float = 0.5
 
 
 # ============================================================
@@ -250,7 +252,8 @@ class ModelAgent:
         self,
         precios: pd.DataFrame,
         ticker: str,
-        modelo: str = "ensemble"
+        modelo: str = "ensemble",
+        forzar_actualizacion: bool = False
     ) -> Optional[PredictionResult]:
         """
         Genera predicción usando ensemble de modelos.
@@ -284,12 +287,13 @@ class ModelAgent:
             # Verificar caché: si los datos no cambiaron, devolver resultado anterior
             last_date = str(precios.index[-1].date()) if hasattr(precios.index[-1], 'date') else str(precios.index[-1])
             data_len = len(precios)
-            with self._cache_lock:
-                if ticker in self._prediction_cache:
-                    cached_date, cached_len, cached_result = self._prediction_cache[ticker]
-                    if cached_date == last_date and cached_len == data_len:
-                        logger.info(f"[{ticker}] ModelAgent: usando predicción en caché ({last_date})")
-                        return cached_result
+            if not forzar_actualizacion:
+                with self._cache_lock:
+                    if ticker in self._prediction_cache:
+                        cached_date, cached_len, cached_result = self._prediction_cache[ticker]
+                        if cached_date == last_date and cached_len == data_len:
+                            logger.info(f"[{ticker}] ModelAgent: usando predicción en caché ({last_date})")
+                            return cached_result
 
             # Feature engineering
             X, y, feature_names = self._crear_features(precios)
@@ -396,7 +400,8 @@ class ModelAgent:
                 pesos_ensemble={k: round(v, 4) for k, v in pesos.items()},
                 features_importance=feature_importance_avg,
                 tendencia=tendencia,
-                confianza=round(confianza, 3)
+                confianza=round(confianza, 3),
+                prob_subida=round(prob_subida, 4)
             )
 
             logger.info(
@@ -551,17 +556,24 @@ class ModelAgent:
         # Crear target binario: 1 si sube más de 0.5%, 0 si baja más de 0.5%
         # Ignorar movimientos menores (ruido de mercado)
         cambio_pct = (future_price - current_price) / current_price
-        y_direction = (cambio_pct > 0.005).astype(int)
 
         # Eliminar NaN y alinear
         valid_idx = ~(future_price.isna() | current_price.isna())
-        y = y_direction[valid_idx].values
-        X = df[feature_names][valid_idx].iloc[:-3].values
+        cambio_valido = cambio_pct[valid_idx]
+        X_valido = df[feature_names][valid_idx].iloc[:-3]
 
-        if len(X) != len(y):
-            min_len = min(len(X), len(y))
-            X = X[:min_len]
-            y = y[:min_len]
+        if len(X_valido) != len(cambio_valido):
+            min_len = min(len(X_valido), len(cambio_valido))
+            X_valido = X_valido.iloc[:min_len]
+            cambio_valido = cambio_valido.iloc[:min_len]
+
+        # Descartar zona neutra (|cambio| <= 0.5%): son ruido, no subida ni bajada real
+        mascara_significativa = abs(cambio_valido) > 0.005
+        X_valido = X_valido[mascara_significativa]
+        cambio_valido = cambio_valido[mascara_significativa]
+
+        y = (cambio_valido > 0).astype(int).values
+        X = X_valido.values
 
         return X, y, feature_names
 
@@ -642,21 +654,40 @@ class ModelAgent:
         if not metrics_list:
             return None, ModelMetrics(), {}
 
-        # Entrenar modelo final con todos los datos y predecir PROBABILIDAD
+        # Entrenar modelo final con todos los datos y predecir PROBABILIDAD CALIBRADA
         try:
             if model_type == ModelType.LSTM and TORCH_AVAILABLE:
-                # Para LSTM, predecir directamente
                 prediccion = self._entrenar_lstm(X[:-1], y[:-1], X[-1:])
                 if isinstance(prediccion, np.ndarray):
                     prediccion = float(prediccion[0])
             else:
-                modelo.fit(X, y)
-                # Predecir PROBABILIDAD de subida (clase 1)
-                if hasattr(modelo, 'predict_proba'):
-                    prediccion = float(modelo.predict_proba(X[-1:].reshape(1, -1))[0][1])
+                # Reservar ~20% de los datos para calibración (mínimo 10 muestras)
+                n_cal = max(10, len(X) // 5)
+                X_train_final = X[:-(n_cal + 1)]
+                y_train_final = y[:-(n_cal + 1)]
+                X_cal = X[-(n_cal + 1):-1]
+                y_cal = y[-(n_cal + 1):-1]
+
+                modelo_final = self._crear_modelo(model_type)
+                modelo_final.fit(X_train_final, y_train_final)
+
+                # XGBoost ya calibra internamente con binary:logistic; otros modelos usan CalibratedClassifierCV
+                xgb_types = {ModelType.XGBOOST} if XGB_AVAILABLE else set()
+                usar_calibracion = (
+                    model_type not in xgb_types
+                    and len(np.unique(y_cal)) == 2
+                )
+
+                if usar_calibracion:
+                    calibrado = CalibratedClassifierCV(modelo_final, cv='prefit', method='sigmoid')
+                    calibrado.fit(X_cal, y_cal)
+                    prediccion = float(calibrado.predict_proba(X[-1:].reshape(1, -1))[0][1])
                 else:
-                    # Si no tiene predict_proba, usar predicción de clase
-                    prediccion = float(modelo.predict(X[-1:].reshape(1, -1))[0])
+                    modelo_final.fit(X, y)
+                    if hasattr(modelo_final, 'predict_proba'):
+                        prediccion = float(modelo_final.predict_proba(X[-1:].reshape(1, -1))[0][1])
+                    else:
+                        prediccion = float(modelo_final.predict(X[-1:].reshape(1, -1))[0])
         except Exception as e:
             logger.debug(f"Error en predicción final de {model_type.value}: {e}")
             return None, ModelMetrics(), {}
@@ -1021,6 +1052,7 @@ class ModelAgent:
             "features_importance": resultado.features_importance,
             "tendencia": resultado.tendencia,
             "confianza": resultado.confianza,
+            "prob_subida": resultado.prob_subida,
             "metricas": {
                 # Métricas de clasificación
                 "accuracy": resultado.metricas_completas.accuracy,

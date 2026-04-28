@@ -432,9 +432,16 @@ class SentimentAgent:
                     s.confidence = s.confidence * relevancia
                 all_scores.extend(model_scores)
 
-                # Calcular score promedio ponderado para esta noticia
+                # Calcular score ponderado por MODEL_WEIGHTS para esta noticia
                 if model_scores:
-                    avg_score = np.mean([s.score for s in model_scores])
+                    total_w = sum(self.MODEL_WEIGHTS.get(s.model_name, 0.1) for s in model_scores)
+                    if total_w > 0:
+                        avg_score = sum(
+                            s.score * self.MODEL_WEIGHTS.get(s.model_name, 0.1)
+                            for s in model_scores
+                        ) / total_w
+                    else:
+                        avg_score = np.mean([s.score for s in model_scores])
                     news_scores_weighted.append((avg_score, relevancia))
                     analyzed_news.append(NewsItem(
                         title=news['titulo'],
@@ -642,7 +649,7 @@ class SentimentAgent:
 
         if total_weight > 0:
             final_score = sum(weighted_scores) / total_weight
-            final_confidence = sum(weighted_confidences) / len(scores)
+            final_confidence = sum(weighted_confidences) / total_weight
         else:
             final_score = np.mean([s.score for s in scores])
             final_confidence = 0.5
@@ -896,11 +903,21 @@ class SentimentAgent:
             explicacion = f"Las noticias sobre {ticker} son NEUTRALES. No hay un sentimiento claro positivo o negativo."
             que_significa = "El mercado no tiene una opinión fuerte. Esto es normal y significa que debes basarte en otros factores para decidir."
 
-        # Agregar contexto de tendencia
+        # Agregar contexto de tendencia y ajustar interpretación si hay contradicción
         if trend == "mejorando":
             explicacion += " La tendencia está MEJORANDO."
+            if sentimiento in ("positivo", "neutral"):
+                que_significa += " Además, las noticias recientes son más positivas que las anteriores, lo cual refuerza el panorama favorable."
         elif trend == "deteriorando":
             explicacion += " La tendencia está EMPEORANDO."
+            if sentimiento == "positivo":
+                que_significa = (
+                    "Aunque el sentimiento general sigue siendo positivo, "
+                    "las noticias más recientes son menos optimistas que las anteriores. "
+                    "El ambiente podría estar cambiando: conviene ser cauteloso y monitorear la evolución antes de tomar decisiones."
+                )
+            elif sentimiento == "neutral":
+                que_significa += " Las noticias recientes apuntan en dirección negativa. Mantené cautela."
 
         # Agregar nota sobre confianza
         if confianza < 0.3:
@@ -928,9 +945,9 @@ class SentimentAgent:
             if modelos_usados:
                 modelos_explicados = [modelos_desc.get(m, m) for m in modelos_usados if m in modelos_desc]
                 if modelos_explicados:
-                    como_se_calcula += f"Técnicas de análisis: {', '.join(modelos_explicados[:3])}. "
+                    como_se_calcula += f"Técnicas de análisis: {', '.join(modelos_explicados)}. "
 
-            como_se_calcula += f"Score final: {score:.2f} (promedio ponderado)."
+            como_se_calcula += f"Score final: {score:.2f}".replace(".", ",") + " (promedio ponderado)."
         else:
             como_se_calcula = "Sin noticias disponibles para este ticker. El análisis se basa en datos limitados."
 

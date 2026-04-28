@@ -407,10 +407,10 @@ class RecommendationAgent:
     THRESHOLDS = {
         'strong_buy': 0.6,
         'buy': 0.3,
-        'weak_buy': 0.1,
-        'neutral_high': 0.1,
-        'neutral_low': -0.1,
-        'weak_sell': -0.1,
+        'weak_buy': 0.2,
+        'neutral_high': 0.2,
+        'neutral_low': -0.2,
+        'weak_sell': -0.2,
         'sell': -0.3,
         'strong_sell': -0.6
     }
@@ -1047,10 +1047,11 @@ class RecommendationAgent:
 
         # Construir explicación de por qué
         porque = "📊 ¿CÓMO SE CALCULÓ ESTA RECOMENDACIÓN?\n\n"
-        porque += "Analizamos 3 factores principales:\n"
-        porque += "1️⃣ TENDENCIA TÉCNICA: ¿El precio está subiendo o bajando?\n"
-        porque += "2️⃣ PREDICCIÓN DE IA: ¿Qué dice nuestro modelo de machine learning?\n"
-        porque += "3️⃣ SENTIMIENTO: ¿Las noticias son positivas o negativas?\n\n"
+        porque += "Combinamos 4 grupos de factores con distintos pesos:\n"
+        porque += "1️⃣ TENDENCIA TÉCNICA (40%): ¿El precio está subiendo o bajando? (indicadores: medias móviles, RSI, MACD, Bollinger Bands, ATR, volumen)\n"
+        porque += "2️⃣ PREDICCIÓN DE IA (35%): ¿Qué dice nuestro modelo de machine learning? (ensemble: RF + GB + XGB + LightGBM)\n"
+        porque += "3️⃣ SENTIMIENTO (15%): ¿Las noticias son positivas o negativas? (FinBERT + VADER + TextBlob + léxico)\n"
+        porque += "4️⃣ RIESGO (10%): ¿Cuánta incertidumbre hay? (volatilidad, VaR 95%, régimen de mercado)\n\n"
 
         if factores_a_favor:
             porque += "✅ FACTORES A FAVOR:\n"
@@ -1063,7 +1064,7 @@ class RecommendationAgent:
                 porque += f"   • {f}\n"
 
         # Score final
-        porque += f"\n🎯 PUNTUACIÓN FINAL: {composite_score:.2f} "
+        porque += f"\n🎯 PUNTUACIÓN FINAL: {composite_score:.2f}".replace(".", ",") + " (escala -1 a +1, donde +1 = máxima señal de compra, -1 = máxima señal de venta)\n"
         if composite_score > 0.3:
             porque += "(muy favorable para comprar)"
         elif composite_score > 0.1:
