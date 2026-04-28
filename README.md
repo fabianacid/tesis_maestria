@@ -153,14 +153,14 @@ graph TB
    - **Modelo de clasificación** que predice dirección del precio (subida/bajada)
    - Ensemble con modelos base (siempre presentes):
      - LogisticRegression (Linear) — clasificador probabilístico
-     - RidgeClassifier — produce clase directa (0/1), no probabilidad
+     - RidgeClassifier — calibrado con `CalibratedClassifierCV` para producir probabilidades
      - Random Forest Classifier
      - Gradient Boosting Classifier
    - Modelos opcionales (según librerías instaladas):
      - XGBoost Classifier (si xgboost disponible)
      - LightGBM Classifier (si lightgbm disponible)
      - LSTM (si pytorch disponible)
-   - **Ensemble probabilístico efectivo**: RF, GB, XGB, LGB (los que aportan predict_proba)
+   - **Ensemble probabilístico efectivo**: todos los modelos contribuyen probabilidades — XGBoost calibra internamente (`binary:logistic`), el resto vía `CalibratedClassifierCV` (sigmoide)
    - **Calibración de probabilidades**: cada modelo (excepto XGBoost, que calibra internamente con `binary:logistic`) se calibra con `CalibratedClassifierCV` (método sigmoide, `cv='prefit'`), reservando ~20% de los datos finales para calibración
    - **Filtro de ruido en entrenamiento**: movimientos menores a ±0.5% se excluyen del target (zona neutra tratada como ruido de mercado)
    - Feature engineering con 52 características técnicas
