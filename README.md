@@ -161,12 +161,15 @@ graph TB
      - LightGBM Classifier (si lightgbm disponible)
      - LSTM (si pytorch disponible)
    - **Ensemble probabilístico efectivo**: RF, GB, XGB, LGB (los que aportan predict_proba)
+   - **Calibración de probabilidades**: cada modelo (excepto XGBoost, que calibra internamente con `binary:logistic`) se calibra con `CalibratedClassifierCV` (método sigmoide, `cv='prefit'`), reservando ~20% de los datos finales para calibración
+   - **Filtro de ruido en entrenamiento**: movimientos menores a ±0.5% se excluyen del target (zona neutra tratada como ruido de mercado)
    - Feature engineering con 52 características técnicas
    - Ventana de entrenamiento: **504 días** (2 años)
    - Horizonte de predicción: **3 días**
    - Walk-forward validation temporal con 5 splits
    - Métricas de clasificación: **Accuracy**, **Precision**, **Recall**, **F1-Score**, **AUC-ROC**
    - Conversión de probabilidad a precio estimado usando volatilidad histórica
+   - Expone `prob_subida` como campo explícito en la respuesta (probabilidad calibrada de subida)
 
 3. **SentimentAgent** 
    - Ensemble de modelos NLP:
@@ -176,7 +179,11 @@ graph TB
      - **Léxico Financiero** (20% peso) - 500+ términos en español e inglés
    - Análisis de 7 noticias recientes de Yahoo Finance
    - **Filtro de relevancia**: noticias sin mención directa del ticker/empresa reciben peso reducido (40%) para evitar contaminación por noticias del mercado general
-   - **Ponderación por relevancia**: el score final es promedio ponderado por relevancia de cada noticia
+   - **Ponderación en dos niveles**:
+     1. *Por modelo*: el score de cada noticia es promedio ponderado por `MODEL_WEIGHTS` (FinBERT 40%, VADER 25%, Léxico 20%, TextBlob 15%)
+     2. *Por relevancia*: el score final es promedio ponderado de los scores de noticias por su relevancia al ticker
+   - **Confianza normalizada**: se calcula como promedio ponderado por peso de modelo (no por cantidad de scores)
+   - **Interpretación contextual**: si la tendencia contradice el sentimiento general (ej: sentimiento positivo pero tendencia deteriorando), la explicación lo señala explícitamente con advertencia de cautela
    - Detección de tendencia de sentimiento
    - Extracción de temas clave (earnings, M&A, regulatory)
    - Caché de 1 hora para optimizar
@@ -748,7 +755,8 @@ password=SecurePass123!
       "n_features": 52,
       "n_modelos": "4-7 (según librerías instaladas)",
       "mejor_modelo": "varía según ticker y entrenamiento"
-    }
+    },
+    "prob_subida": 0.6231
   },
   "sentiment": {
     "score": 0.42,
