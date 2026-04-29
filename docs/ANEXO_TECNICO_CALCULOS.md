@@ -287,13 +287,17 @@ if ADX > 25:
         régimen = "tendencia_alcista"
     else:
         régimen = "tendencia_bajista"
-elif ATR > percentil_75(ATR_histórico):
+elif ATR_pct > 3.0:          # ATR como % del precio > 3%
     régimen = "alta_volatilidad"
-elif ATR < percentil_25(ATR_histórico):
+elif ATR_pct < 1.0:          # ATR como % del precio < 1%
     régimen = "baja_volatilidad"
 else:
     régimen = "lateral"
+
+# donde: ATR_pct = (ATR / precio_actual) × 100
 ```
+
+> **Nota de implementación**: Se usan umbrales fijos sobre el ATR porcentual (ATR% > 3% para alta volatilidad, ATR% < 1% para baja volatilidad), no percentiles históricos. Esto hace la detección determinista e independiente del histórico disponible.
 
 ### 1.4 Señal de Mercado Unificada
 
@@ -302,19 +306,24 @@ else:
 El sistema evalúa múltiples señales de diferentes categorías y las combina con pesos específicos:
 
 ```python
-# SEÑALES TÉCNICAS
-señales_técnicas = {
+# SEÑALES DE TENDENCIA (cruce de medias móviles, ADX)
+señales_tendencia = {
+    'SMA_cross': señal_sma,     # -1, 0, +1
+    'EMA_cross': señal_ema,     # -1, 0, +1
+    'ADX': señal_adx,           # -1, 0, +1
+}
+
+# SEÑALES DE MOMENTUM (RSI, MACD, Stochastic, Bollinger)
+señales_momentum = {
     'RSI': señal_rsi,           # -1, 0, +1
     'MACD': señal_macd,         # -1, 0, +1
     'Bollinger': señal_bb,      # -1, 0, +1
     'Stochastic': señal_stoch,  # -1, 0, +1
 }
 
-# SEÑALES DE TENDENCIA
-señales_tendencia = {
-    'SMA_cross': señal_sma,     # -1, 0, +1
-    'EMA_cross': señal_ema,     # -1, 0, +1
-    'ADX': señal_adx,           # -1, 0, +1
+# SEÑALES DE VOLATILIDAD (ATR)
+señales_volatilidad = {
+    'ATR': señal_atr,           # -1, 0, +1
 }
 
 # SEÑALES DE VOLUMEN
@@ -323,21 +332,24 @@ señales_volumen = {
     'MFI': señal_mfi,           # -1, 0, +1
 }
 
-# PESOS POR CATEGORÍA
+# PESOS POR CATEGORÍA (implementación real)
 pesos = {
-    'técnicas': 0.40,
-    'tendencia': 0.35,
-    'volumen': 0.25
+    'trend':      0.35,
+    'momentum':   0.30,
+    'volatility': 0.15,
+    'volume':     0.20
 }
 
 # CÁLCULO DEL SCORE FINAL
-score_técnicas = promedio(señales_técnicas)
-score_tendencia = promedio(señales_tendencia)
-score_volumen = promedio(señales_volumen)
+score_tendencia   = promedio(señales_tendencia)
+score_momentum    = promedio(señales_momentum)
+score_volatilidad = promedio(señales_volatilidad)
+score_volumen     = promedio(señales_volumen)
 
-score_final = (score_técnicas × 0.40) +
-              (score_tendencia × 0.35) +
-              (score_volumen × 0.25)
+score_final = (score_tendencia   × 0.35) +
+              (score_momentum    × 0.30) +
+              (score_volatilidad × 0.15) +
+              (score_volumen     × 0.20)
 
 # CLASIFICACIÓN
 if score_final > 0.3:
@@ -350,28 +362,32 @@ else:
 
 **Ejemplo completo**:
 ```
-Señales técnicas:
-- RSI = 65 → neutral (0)
-- MACD > Signal → alcista (+1)
-- Precio en medio de Bollinger → neutral (0)
-- Stochastic = 75 → sobrecompra (-0.5)
-Score técnicas = (0 + 1 + 0 - 0.5) / 4 = 0.125
-
 Señales tendencia:
 - SMA(20) > SMA(50) → alcista (+1)
 - EMA(12) > EMA(26) → alcista (+1)
 - ADX = 30, +DI > -DI → alcista (+1)
 Score tendencia = (1 + 1 + 1) / 3 = 1.0
 
+Señales momentum:
+- RSI = 65 → neutral (0)
+- MACD > Signal → alcista (+1)
+- Precio en medio de Bollinger → neutral (0)
+- Stochastic = 75 → sobrecompra (-0.5)
+Score momentum = (0 + 1 + 0 - 0.5) / 4 = 0.125
+
+Señales volatilidad:
+- ATR% = 1.8% → neutral (0)
+Score volatilidad = 0.0
+
 Señales volumen:
 - OBV tendencia alcista → alcista (+1)
 - MFI = 55 → neutral (0)
 Score volumen = (1 + 0) / 2 = 0.5
 
-Score final = (0.125 × 0.40) + (1.0 × 0.35) + (0.5 × 0.25)
-            = 0.050 + 0.350 + 0.125 = 0.525
+Score final = (1.0 × 0.35) + (0.125 × 0.30) + (0.0 × 0.15) + (0.5 × 0.20)
+            = 0.350 + 0.0375 + 0.0 + 0.100 = 0.4875
 
-0.525 > 0.3 → Señal = "ALCISTA"
+0.4875 > 0.3 → Señal = "ALCISTA"
 ```
 
 ---
@@ -510,18 +526,32 @@ features_patrones = [
 precio_futuro = Close[t+3]   # Precio dentro de 3 días
 precio_actual = Close[t]      # Precio hoy
 
-# Clasificación binaria
-y = 1  si precio_futuro > precio_actual  (SUBIDA)
-y = 0  si precio_futuro ≤ precio_actual  (BAJADA)
+# Cambio porcentual
+cambio_pct = (precio_futuro - precio_actual) / precio_actual
+
+# Filtro de ruido: sólo movimientos significativos (> ±0.5%)
+mascara_significativa = |cambio_pct| > 0.005
+
+# Clasificación binaria (aplicada sobre filas con mascara_significativa=True)
+y = 1  si cambio_pct > 0.005   (SUBIDA significativa)
+y = 0  si cambio_pct ≤ -0.005  (BAJADA significativa)
 ```
+
+> **Filtro de ruido**: Movimientos de ±0.5% o menores se excluyen del entrenamiento. Esto reduce el ruido de mercado y evita que el modelo aprenda de variaciones no significativas. En la práctica, en la implementación actual el target se calcula directamente como `y = (cambio_pct > 0.005).astype(int)`, que clasifica 1 (SUBIDA) sólo si el cambio supera +0.5%, y 0 (BAJADA o movimiento plano) en todos los demás casos.
 
 **Ejemplo práctico**:
 ```
 Día t: Close = $150.00
 Día t+3: Close = $152.50
 
-precio_futuro ($152.50) > precio_actual ($150.00)
-→ y = 1 (SUBIDA)
+cambio_pct = (152.50 - 150.00) / 150.00 = 0.0167 (1.67%)
+0.0167 > 0.005 → y = 1 (SUBIDA significativa)
+
+Caso sin umbral (ruido):
+Día t: Close = $150.00
+Día t+3: Close = $150.40
+cambio_pct = 0.0027 (0.27%) → descartado (movimiento < 0.5%)
+→ y = 0 (clasificado como no-subida)
 ```
 
 ### 2.4 División de Datos
@@ -670,7 +700,47 @@ prob_ensemble = Σ(peso_i × prob_i)
 Interpretación: dirección con mayor probabilidad → SUBIDA o BAJADA
 ```
 
-### 2.7 Conversión de Probabilidad a Precio
+### 2.7 Calibración de Probabilidades (Platt Scaling)
+
+**Problema**: Los clasificadores binarios producen probabilidades "crudas" que pueden no reflejar frecuencias reales (un modelo que dice 80% puede acertar sólo el 60% de las veces).
+
+**Solución implementada**: `CalibratedClassifierCV` con método Platt Scaling (regresión logística sobre los scores del modelo base).
+
+**División de datos para calibración**:
+```python
+# Del total de datos de entrenamiento:
+n_cal   = max(10, len(X) // 5)   # ≈ 20% para calibración
+n_train = len(X) - n_cal          # ≈ 80% para entrenamiento base
+
+X_train_base = X[:-n_cal]
+X_cal        = X[-n_cal:]         # datos más recientes → calibración
+```
+
+**Proceso**:
+```
+1. Entrenar modelo base (RF, GBM, LightGBM, etc.) con X_train_base
+2. Obtener scores crudos sobre X_cal: s = modelo_base.predict_proba(X_cal)[:,1]
+3. Ajustar regresión logística (Platt):
+     P_calibrada = 1 / (1 + e^(-(a × s + b)))
+   donde a, b se aprenden minimizando log-loss sobre X_cal
+4. En predicción: aplicar la transformación logística antes de retornar prob_subida
+```
+
+**Excepción — XGBoost**:
+```python
+# XGBoost usa objective='binary:logistic' que ya produce probabilidades calibradas
+# internamente. No se aplica CalibratedClassifierCV adicional.
+```
+
+**División resultante en la práctica** (504 días totales):
+```
+n_cal   = 504 // 5 = 100 días (≈20%) → calibración Platt
+n_train = 404 días (≈80%)             → entrenamiento base
+```
+
+> **Por qué importa**: Sin calibración, el ensemble puede asignar probabilidades de 0.7–0.9 para movimientos que ocurren sólo el 55–60% de las veces. La calibración alinea las probabilidades predichas con las frecuencias empíricas, haciendo que `prob_subida = 0.65` signifique realmente "sube el 65% de las veces".
+
+### 2.8 Conversión de Probabilidad a Precio
 
 **Método basado en volatilidad histórica**:
 
@@ -736,9 +806,9 @@ Interpretación:
 - Pérdida esperada: -$1.20 (-0.80%)
 ```
 
-### 2.8 Métricas de Evaluación - Clasificación Binaria
+### 2.9 Métricas de Evaluación - Clasificación Binaria
 
-#### 2.8.1 Matriz de Confusión
+#### 2.9.1 Matriz de Confusión
 
 **Concepto**: Tabla que compara predicciones vs realidad.
 
@@ -767,7 +837,7 @@ TP = 35, TN = 40, FP = 10, FN = 15
 Total = 100 predicciones
 ```
 
-#### 2.8.2 Accuracy (Exactitud)
+#### 2.9.2 Accuracy (Exactitud)
 
 **Fórmula**:
 ```
@@ -789,7 +859,7 @@ Interpretación: El modelo acierta la dirección en el 75% de los casos
 - Accuracy 50-60%: Moderado
 - Accuracy ≈ 50%: Equivalente a lanzar una moneda
 
-#### 2.8.3 Precision (Precisión)
+#### 2.9.3 Precision (Precisión)
 
 **Fórmula**:
 ```
@@ -807,7 +877,7 @@ Interpretación: Cuando predice SUBIDA, acierta el 77.8% de las veces
 
 **¿Cuándo importa?**: Cuando el costo de un falso positivo es alto (comprar y que baje).
 
-#### 2.8.4 Recall / Sensitivity (Sensibilidad)
+#### 2.9.4 Recall / Sensitivity (Sensibilidad)
 
 **Fórmula**:
 ```
@@ -825,7 +895,7 @@ Interpretación: Detecta el 70% de las subidas reales
 
 **¿Cuándo importa?**: Cuando no quieres perder oportunidades (capturar todas las subidas).
 
-#### 2.8.5 F1-Score
+#### 2.9.5 F1-Score
 
 **Fórmula**:
 ```
@@ -844,7 +914,7 @@ Interpretación: Balance óptimo entre precision y recall
 
 **¿Cuándo usarlo?**: Métrica general cuando precision y recall son igualmente importantes.
 
-#### 2.8.6 AUC-ROC (Area Under Curve)
+#### 2.9.6 AUC-ROC (Area Under Curve)
 
 **Concepto**: Área bajo la curva ROC (True Positive Rate vs False Positive Rate).
 
@@ -1082,56 +1152,41 @@ else:
 
 ### 3.5 Cálculo de Confianza
 
-**Fórmula implementada**:
+**Fórmula implementada en código** (promedio ponderado de confianzas individuales):
 
 ```python
-# Base de confianza
-base = 0.5
+# Cada modelo devuelve su propia confianza (c_i) y el peso del modelo (w_i)
+# La confianza del ensemble es el promedio ponderado normalizado:
 
-# Ajuste por número de noticias (máx +0.2)
-ajuste_cantidad = min(n_noticias / 7, 1.0) × 0.2
+numerador   = Σ(c_i × w_i)   # para cada modelo activo
+denominador = Σ(c_i × w_i)   # mismo cómputo (todos los modelos tienen c_i > 0)
 
-# Ajuste por acuerdo entre métodos (máx +0.3)
-scores_métodos = [score_finbert, score_vader, score_lexicon, score_textblob]
-desviación = std(scores_métodos)
-acuerdo = 1 - min(desviación, 1.0)
-ajuste_acuerdo = acuerdo × 0.3
+confianza_ensemble = numerador / denominador
 
-confianza = base + ajuste_cantidad + ajuste_acuerdo
-
-# Limitar rango
-confianza_final ∈ [0.3, 0.9]
+# Limitar al máximo 0.95
+confianza_final = min(confianza_ensemble, 0.95)
 ```
 
-**Ejemplo**:
+> **Nota técnica**: En la implementación actual el numerador y el denominador son idénticos, por lo que `confianza_ensemble` siempre resulta 1.0 y `confianza_final` siempre retorna **0.95** (el techo). La intención del diseño era ponderar la confianza de cada modelo por su peso relativo, pero la normalización produce una identidad matemática. El valor **0.95** se puede interpretar como "confianza alta constante", aunque no refleja variación real entre ejecuciones.
+
+**Diseño intencional (fórmula conceptual)**:
 ```
-n_noticias = 7
-Scores para una noticia:
-- FinBERT: 0.85
-- VADER: 0.72
-- Lexicon: 0.75
-- TextBlob: 0.65
+confianza_ideal = Σ(confianza_modelo_i × peso_modelo_i)
+                 ─────────────────────────────────────
+                        Σ(peso_modelo_i)
 
-Desviación = std([0.85, 0.72, 0.75, 0.65]) = 0.08
+donde pesos (MODEL_WEIGHTS): FinBERT=0.40, VADER=0.25, Lexicon=0.20, TextBlob=0.15
 
-Base = 0.5
-Ajuste_cantidad = min(10/10, 1.0) × 0.2 = 0.2
-Acuerdo = 1 - 0.08 = 0.92
-Ajuste_acuerdo = 0.92 × 0.3 = 0.276
+Ejemplo:
+- FinBERT  devuelve confianza 0.85, peso 0.40
+- VADER    devuelve confianza 0.72, peso 0.25
+- Lexicon  devuelve confianza 0.60, peso 0.20
+- TextBlob devuelve confianza 0.50, peso 0.15
 
-Confianza = 0.5 + 0.2 + 0.276 = 0.976
-
-Aplicar límite: min(0.976, 0.9) = 0.9
-
-Confianza_final = 90%
-```
-
-Si solo hay 3 noticias:
-```
-Ajuste_cantidad = min(3/10, 1.0) × 0.2 = 0.06
-Confianza = 0.5 + 0.06 + 0.276 = 0.836
-
-Confianza_final = 83.6%  # Valor ilustrativo del cálculo; las confianzas reales varían según ticker y sesión
+confianza_ideal = (0.85×0.40 + 0.72×0.25 + 0.60×0.20 + 0.50×0.15) /
+                  (0.40 + 0.25 + 0.20 + 0.15)
+               = (0.340 + 0.180 + 0.120 + 0.075) / 1.0
+               = 0.715 → 71.5%
 ```
 
 ---
@@ -1923,44 +1978,44 @@ INSERT INTO alertas (
 ```
 Usuario solicita análisis de TICKER
          ↓
+┌─────────────────────────────────────────────────────────────┐
+│ PASO 1 — Ejecución PARALELA (asyncio.gather)                │
+│                                                             │
+│  ┌──────────────────────────┐  ┌──────────────────────────┐ │
+│  │ MarketAgent              │  │ SentimentAgent           │ │
+│  │ - Descargar datos (2y)  │  │ - Obtener noticias       │ │
+│  │ - 35+ indicadores        │  │ - VADER + TextBlob +     │ │
+│  │ - Régimen de mercado     │  │   FinBERT + Lexicon      │ │
+│  │ - Señal unificada        │  │ - Promedio ponderado:    │ │
+│  │ Output: market_data      │  │   FinBERT 40%, VADER 25% │ │
+│  └──────────────────────────┘  │   Lexicon 20%, TB 15%   │ │
+│                                │ Output: sentiment        │ │
+│                                └──────────────────────────┘ │
+│                                                             │
+│  Implementación: await asyncio.gather(                      │
+│      run_in_executor(market_agent.obtener_datos),           │
+│      run_in_executor(sentiment_agent.analizar)              │
+│  )                                                          │
+└─────────────────────────────────────────────────────────────┘
+         ↓  (market_data y sentiment disponibles)
 ┌────────────────────────────────────────┐
-│ 1. MarketAgent                         │
-│   - Descargar datos (2 años)          │
-│   - Calcular 35+ indicadores técnicos │
-│   - Detectar régimen de mercado       │
-│   - Generar señal unificada           │
-│   Output: market_data                 │
-└────────────────────────────────────────┘
-         ↓
-┌────────────────────────────────────────┐
-│ 2. ModelAgent                          │
+│ PASO 2 — ModelAgent (secuencial)       │
+│   Requiere market_data.precios         │
 │   - Construir features (52 variables) │
 │   - Ejecutar 4-7 modelos clasificación│
 │     (4 base + XGB/LGB/LSTM opcionales)│
+│   - Walk-forward validation 5 folds   │
+│   - Calibración Platt Scaling (~20%)  │
 │   - Ensemble ponderado por Accuracy   │
-│   - Calcular métricas (Accuracy,      │
-│     Precision, Recall, F1, AUC)       │
-│   - Convertir probabilidad a precio   │
+│   - Calcular métricas (Acc, Prec,     │
+│     Recall, F1, AUC)                  │
+│   - Convertir prob_subida a precio    │
 │   Output: prediction                  │
 └────────────────────────────────────────┘
          ↓
 ┌────────────────────────────────────────┐
-│ 3. SentimentAgent                      │
-│   - Obtener 7 noticias recientes      │
-│   - Análisis con VADER + TextBlob +   │
-│     FinBERT + Lexicon                 │
-│   - Promedio ponderado:               │
-│     * FinBERT 40%                     │
-│     * VADER 25%                       │
-│     * Lexicon 20%                     │
-│     * TextBlob 15%                    │
-│   - Clasificar sentimiento            │
-│   Output: sentiment                   │
-└────────────────────────────────────────┘
-         ↓
-┌────────────────────────────────────────┐
-│ 4. RecommendationAgent                 │
-│   - Construir vector de 15 factores   │
+│ PASO 3 — RecommendationAgent           │
+│   - Construir vector de 14 factores   │
 │   - Calcular composite_score          │
 │   - Evaluar riesgo (6 componentes)    │
 │   - Calcular prob. ganancia (3 comp.) │
@@ -1970,7 +2025,7 @@ Usuario solicita análisis de TICKER
 └────────────────────────────────────────┘
          ↓
 ┌────────────────────────────────────────┐
-│ 5. AlertAgent                          │
+│ PASO 4 — AlertAgent                    │
 │   - Comparar vs umbrales              │
 │   - Ejecutar 5 detectores de anomalías│
 │   - Generar mensaje si aplica         │
@@ -1979,12 +2034,14 @@ Usuario solicita análisis de TICKER
 └────────────────────────────────────────┘
          ↓
 ┌────────────────────────────────────────┐
-│ 6. Consolidación y Respuesta           │
+│ Consolidación y Respuesta              │
 │   - Integrar todos los outputs        │
 │   - Formatear para dashboard          │
 │   - Retornar JSON completo            │
 └────────────────────────────────────────┘
 ```
+
+> **Paralelismo**: MarketAgent y SentimentAgent se ejecutan simultáneamente en hilos separados mediante `asyncio.gather` + `loop.run_in_executor`. ModelAgent se ejecuta después porque necesita los precios descargados por MarketAgent (`market_data.precios`). RecommendationAgent y AlertAgent también son secuenciales porque dependen de las salidas anteriores.
 
 ### 6.2 Ejemplo de Flujo Completo: TSLA
 
