@@ -234,6 +234,32 @@ def get_alerts() -> list:
         return []
 
 
+def analyze_portfolio(tickers: list, weights: list) -> Optional[Dict[str, Any]]:
+    """Envía solicitud de análisis de portafolio al backend."""
+    try:
+        response = requests.post(
+            f"{API_URL}/portfolio/analyze",
+            headers=get_headers(),
+            json={"tickers": tickers, "weights": weights},
+            timeout=180,
+        )
+        if response.status_code == 200:
+            return response.json()
+        else:
+            detail = response.json().get("detail", f"Error {response.status_code}")
+            st.error(f"Error del servidor: {detail}")
+            return None
+    except requests.exceptions.ConnectionError:
+        st.error("No se pudo conectar al backend. Verifica que esté corriendo en http://localhost:8000")
+        return None
+    except requests.exceptions.Timeout:
+        st.error("El análisis tardó demasiado. Intenta con menos activos o espera un momento.")
+        return None
+    except Exception as exc:
+        st.error(f"Error: {str(exc)}")
+        return None
+
+
 # ============================================
 # Componentes de UI
 # ============================================
@@ -1142,6 +1168,413 @@ def render_alerts_history():
             st.plotly_chart(fig, use_container_width=True)
 
 
+def _fmt_ratio(val, fmt=".2f", suffix=""):
+    if val is None:
+        return "N/D"
+    return f"{val:{fmt}}{suffix}"
+
+
+def render_sec_card(sec_data: Dict):
+    """Renderiza sección de datos fundamentales SEC."""
+    st.markdown("<p class='section-header'>Datos Fundamentales (SEC / yfinance)</p>", unsafe_allow_html=True)
+
+    if not sec_data or not sec_data.get("disponible", False):
+        st.info("Datos fundamentales no disponibles para este activo (puede ser no-US o ETF).")
+        return
+
+    signal = sec_data.get("fundamental_signal", "neutral")
+    score = sec_data.get("fundamental_score", 0.0)
+    resumen = sec_data.get("resumen", "")
+    company = sec_data.get("company_name", "")
+    ratios = sec_data.get("ratios", {})
+    balance = sec_data.get("balance", {})
+    filings = sec_data.get("recent_filings", [])
+
+    color_map = {"positivo": "#28a745", "negativo": "#dc3545", "neutral": "#6c757d"}
+    color = color_map.get(signal, "#6c757d")
+
+    st.markdown(f"""
+        <div class='card' style='border-left: 4px solid {color}; padding: 15px;'>
+            <div style='font-size:1.1rem;font-weight:600;color:{color};margin-bottom:8px;'>
+                {company} — Señal fundamental: {signal.upper()}
+                (score: {score:+.2f})
+            </div>
+            <p style='color:#444;margin:0'>{resumen}</p>
+        </div>
+    """, unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns(3)
+
+    with col1:
+        st.markdown("**Valuación**")
+        st.metric("P/E Ratio", _fmt_ratio(ratios.get("pe_ratio"), ".1f", "x"),
+                  help="Precio / Ganancia. < 15 = barato, > 30 = caro")
+        st.metric("P/B Ratio", _fmt_ratio(ratios.get("pb_ratio"), ".2f", "x"),
+                  help="Precio / Valor en libros")
+        st.metric("EV/EBITDA", _fmt_ratio(ratios.get("ev_ebitda"), ".1f", "x"))
+        mc = ratios.get("market_cap")
+        if mc:
+            if mc >= 1e12:
+                mc_str = f"${mc/1e12:.2f}T"
+            elif mc >= 1e9:
+                mc_str = f"${mc/1e9:.1f}B"
+            else:
+                mc_str = f"${mc/1e6:.0f}M"
+            st.metric("Market Cap", mc_str)
+
+    with col2:
+        st.markdown("**Rentabilidad**")
+        roe = ratios.get("roe")
+        st.metric("ROE", _fmt_ratio(roe * 100 if roe else None, ".1f", "%"),
+                  help="Return on Equity. >15% = bueno")
+        roa = ratios.get("roa")
+        st.metric("ROA", _fmt_ratio(roa * 100 if roa else None, ".1f", "%"),
+                  help="Return on Assets")
+        pm = ratios.get("profit_margin")
+        st.metric("Margen Neto", _fmt_ratio(pm * 100 if pm else None, ".1f", "%"))
+        om = ratios.get("operating_margin")
+        st.metric("Margen Operativo", _fmt_ratio(om * 100 if om else None, ".1f", "%"))
+
+    with col3:
+        st.markdown("**Crecimiento y Deuda**")
+        rg = ratios.get("revenue_growth")
+        st.metric("Crecimiento Ingresos", _fmt_ratio(rg * 100 if rg else None, ".1f", "%"))
+        eg = ratios.get("earnings_growth")
+        st.metric("Crecimiento Ganancias", _fmt_ratio(eg * 100 if eg else None, ".1f", "%"))
+        st.metric("Deuda/Capital", _fmt_ratio(ratios.get("debt_to_equity"), ".2f", "x"),
+                  help="< 0.5 = bajo apalancamiento")
+        st.metric("Current Ratio", _fmt_ratio(ratios.get("current_ratio"), ".2f"),
+                  help="> 1 = liquidez adecuada")
+
+    # Balance resumido
+    with st.expander("Ver Balance Resumido"):
+        b_col1, b_col2 = st.columns(2)
+        def _fmt_millones(v):
+            if v is None:
+                return "N/D"
+            if abs(v) >= 1e12:
+                return f"${v/1e12:.2f}T"
+            if abs(v) >= 1e9:
+                return f"${v/1e9:.2f}B"
+            return f"${v/1e6:.1f}M"
+
+        with b_col1:
+            st.metric("Ingresos TTM", _fmt_millones(balance.get("revenue_ttm")))
+            st.metric("Utilidad Neta TTM", _fmt_millones(balance.get("net_income_ttm")))
+            st.metric("Flujo de Caja Operativo", _fmt_millones(balance.get("operating_cash_flow")))
+        with b_col2:
+            st.metric("Deuda Total", _fmt_millones(balance.get("total_debt")))
+            st.metric("Efectivo", _fmt_millones(balance.get("cash_and_equivalents")))
+            st.metric("Flujo de Caja Libre", _fmt_millones(balance.get("free_cash_flow")))
+
+    # Filings SEC recientes
+    if filings:
+        with st.expander(f"Filings SEC recientes ({len(filings)})"):
+            st.caption("Fuente: SEC EDGAR — filings más recientes (10-K, 10-Q, 8-K)")
+            for f in filings:
+                badge_color = {
+                    "10-K": "#17a2b8", "10-Q": "#28a745",
+                    "8-K": "#ffc107", "DEF 14A": "#6c757d"
+                }.get(f["form_type"], "#6c757d")
+                st.markdown(
+                    f"""<div style='display:flex;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid #eee'>
+                        <span style='background:{badge_color};color:white;padding:2px 8px;border-radius:4px;
+                        font-size:0.8rem;font-weight:600;min-width:55px;text-align:center'>{f["form_type"]}</span>
+                        <span style='color:#666;font-size:0.85rem'>{f["filing_date"]}</span>
+                        <span style='color:#333;font-size:0.9rem'>{f["description"] or f["form_type"]}</span>
+                    </div>""",
+                    unsafe_allow_html=True,
+                )
+    else:
+        st.caption("No se encontraron filings SEC para este activo (puede no estar listado en EE.UU.)")
+
+
+def _color_by_rec(tipo: str) -> str:
+    return {"compra": "#28a745", "venta": "#dc3545"}.get(tipo, "#ffc107")
+
+
+def render_portfolio_tab():
+    """Renderiza la pestaña de análisis de portafolio."""
+    st.markdown("### Análisis de Portafolio")
+    st.markdown("Ingresá los tickers y pesos de tus activos para obtener métricas de portafolio y optimización de Markowitz.")
+
+    # --- Formulario de entrada ---
+    with st.form("portfolio_form"):
+        col_t, col_w = st.columns([3, 2])
+        with col_t:
+            tickers_input = st.text_input(
+                "Tickers (separados por coma)",
+                value=st.session_state.get("portfolio_tickers_str", "AAPL, MSFT, GOOGL, AMZN"),
+                help="Ej: AAPL, MSFT, GOOGL, TSLA, NVDA",
+            )
+        with col_w:
+            weights_input = st.text_input(
+                "Pesos (separados por coma)",
+                value=st.session_state.get("portfolio_weights_str", "0.3, 0.3, 0.2, 0.2"),
+                help="Se normalizan automáticamente. Ej: 30, 30, 20, 20 o 0.3, 0.3, 0.2, 0.2",
+            )
+        submitted = st.form_submit_button("Analizar Portafolio", type="primary", use_container_width=True)
+
+    if submitted:
+        try:
+            tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
+            weights = [float(w.strip()) for w in weights_input.split(",") if w.strip()]
+        except ValueError:
+            st.error("Los pesos deben ser números. Ej: 0.3, 0.3, 0.2, 0.2")
+            return
+
+        if len(tickers) < 2:
+            st.error("Ingresá al menos 2 tickers.")
+            return
+        if len(tickers) != len(weights):
+            st.error(f"Cantidad de tickers ({len(tickers)}) y pesos ({len(weights)}) no coincide.")
+            return
+
+        st.session_state.portfolio_tickers_str = tickers_input
+        st.session_state.portfolio_weights_str = weights_input
+
+        with st.spinner(f"Analizando portafolio de {len(tickers)} activos... esto puede tomar 1-2 minutos"):
+            pf_data = analyze_portfolio(tickers, weights)
+
+        if pf_data:
+            st.session_state.last_portfolio = pf_data
+        else:
+            return
+
+    if "last_portfolio" not in st.session_state:
+        st.info("Ingresá los tickers y pesos del portafolio y presioná 'Analizar Portafolio'.")
+        return
+
+    pf = st.session_state.last_portfolio
+    metricas = pf["metricas"]
+    opt = pf["optimizacion"]
+    activos = pf["activos"]
+    tickers_ok = pf["tickers"]
+
+    st.caption(f"Análisis al: {pf['fecha_analisis'][:19].replace('T', ' ')} | Activos: {', '.join(tickers_ok)}")
+
+    # --- Recomendación general ---
+    rec_text = pf.get("recomendacion_portafolio", "")
+    st.info(rec_text)
+
+    # --- Alertas del portafolio ---
+    alertas = pf.get("alertas", [])
+    if alertas:
+        for a in alertas:
+            if a["nivel"] == "critical":
+                st.error(f"Alerta ({a['tipo']}): {a['mensaje']}")
+            else:
+                st.warning(f"Aviso ({a['tipo']}): {a['mensaje']}")
+
+    st.markdown("---")
+
+    # --- Métricas clave ---
+    st.markdown("<p class='section-header'>Métricas del Portafolio</p>", unsafe_allow_html=True)
+    m1, m2, m3, m4, m5 = st.columns(5)
+    sharpe = metricas["sharpe_ratio"]
+    sharpe_color = "normal" if sharpe >= 0.5 else "inverse"
+
+    m1.metric("Retorno Esperado", f"{metricas['expected_return']:.1f}%",
+              help="Retorno anualizado ponderado (histórico + predicción ML)")
+    m2.metric("Volatilidad", f"{metricas['volatility']:.1f}%",
+              help="Desviación estándar anualizada del portafolio (√(w'Σw))")
+    m3.metric("Sharpe Ratio", f"{sharpe:.2f}",
+              delta="bueno" if sharpe > 1.0 else ("moderado" if sharpe > 0.5 else "bajo"),
+              delta_color=sharpe_color,
+              help="(Retorno - Rf) / Volatilidad. Rf = 4.5% anual")
+    m4.metric("VaR 95%", f"{metricas['var_95']:.1f}%",
+              help="Pérdida máxima esperada con 95% de confianza (anualizado)")
+    m5.metric("Ratio Diversificación", f"{metricas['diversification_ratio']:.2f}",
+              help=">1 = beneficios de diversificación. 1 = correlación perfecta")
+
+    if metricas.get("beta_portfolio") is not None:
+        st.caption(f"Beta del portafolio vs S&P 500: {metricas['beta_portfolio']:.2f}")
+
+    st.markdown("---")
+
+    # --- Composición y análisis individual ---
+    col_izq, col_der = st.columns([1, 2])
+
+    with col_izq:
+        st.markdown("<p class='section-header'>Composición Actual</p>", unsafe_allow_html=True)
+
+        # Pie chart de pesos actuales
+        weights_actual = {a["ticker"]: a["weight"] for a in activos}
+        fig_pie = go.Figure(go.Pie(
+            labels=list(weights_actual.keys()),
+            values=[round(v * 100, 1) for v in weights_actual.values()],
+            hole=0.35,
+            marker_colors=["#2563eb", "#10b981", "#f59e0b", "#ef4444",
+                           "#8b5cf6", "#ec4899", "#14b8a6", "#f97316"][:len(activos)],
+            textinfo="label+percent",
+        ))
+        fig_pie.update_layout(height=260, margin=dict(l=0, r=0, t=20, b=0), showlegend=False)
+        st.plotly_chart(fig_pie, use_container_width=True)
+
+    with col_der:
+        st.markdown("<p class='section-header'>Resumen por Activo</p>", unsafe_allow_html=True)
+        rows = []
+        for a in activos:
+            rec_icon = {"compra": "BUY", "venta": "SELL", "mantener": "HOLD"}.get(
+                a["tipo_recomendacion"], a["tipo_recomendacion"].upper()
+            )
+            rows.append({
+                "Ticker": a["ticker"],
+                "Peso %": round(a["weight"] * 100, 1),
+                "Precio": f"${a['price']:.2f}",
+                "Ret. Esp. %": round(a["expected_return"], 1),
+                "Volat. %": round(a["volatility"], 1),
+                "Recom.": rec_icon,
+                "Mercado": a["senal_mercado"].capitalize(),
+                "Sentiment": a["sentimiento"].capitalize(),
+                "Fundamental": a["fundamental_signal"].capitalize(),
+            })
+        df_activos = pd.DataFrame(rows)
+        st.dataframe(df_activos, use_container_width=True, hide_index=True)
+
+    st.markdown("---")
+
+    # --- Matriz de correlación ---
+    st.markdown("<p class='section-header'>Matriz de Correlación</p>", unsafe_allow_html=True)
+    corr_data = metricas["correlation_matrix"]
+    if corr_data:
+        corr_df = pd.DataFrame(corr_data)
+        fig_corr = go.Figure(go.Heatmap(
+            z=corr_df.values,
+            x=corr_df.columns.tolist(),
+            y=corr_df.index.tolist(),
+            colorscale="RdYlGn",
+            zmin=-1, zmax=1,
+            text=[[f"{v:.2f}" for v in row] for row in corr_df.values],
+            texttemplate="%{text}",
+            showscale=True,
+        ))
+        fig_corr.update_layout(
+            height=350, margin=dict(l=0, r=0, t=20, b=0),
+            xaxis_title="", yaxis_title="",
+        )
+        st.plotly_chart(fig_corr, use_container_width=True)
+        st.caption("Verde = correlación negativa (mayor diversificación) | Rojo = correlación positiva (menor diversificación)")
+
+    st.markdown("---")
+
+    # --- Optimización de Markowitz ---
+    st.markdown("<p class='section-header'>Optimización de Markowitz</p>", unsafe_allow_html=True)
+
+    if not opt.get("disponible", False):
+        st.warning("Optimización no disponible (scipy no instalado o datos insuficientes).")
+    else:
+        col_ms, col_mv = st.columns(2)
+
+        with col_ms:
+            st.markdown("**Portafolio de Máximo Sharpe**")
+            st.metric("Sharpe Óptimo", f"{opt['max_sharpe_sharpe']:.2f}")
+            st.metric("Retorno Esperado", f"{opt['max_sharpe_return']:.1f}%")
+            st.metric("Volatilidad", f"{opt['max_sharpe_volatility']:.1f}%")
+
+            w_ms = opt["max_sharpe_weights"]
+            fig_ms = go.Figure(go.Bar(
+                x=list(w_ms.keys()),
+                y=[v * 100 for v in w_ms.values()],
+                marker_color="#2563eb",
+                text=[f"{v*100:.1f}%" for v in w_ms.values()],
+                textposition="outside",
+            ))
+            fig_ms.update_layout(
+                title="Pesos óptimos (Max Sharpe)", height=250,
+                margin=dict(l=0, r=0, t=35, b=0),
+                yaxis_title="Peso (%)", showlegend=False,
+            )
+            st.plotly_chart(fig_ms, use_container_width=True)
+
+        with col_mv:
+            st.markdown("**Portafolio de Mínima Varianza**")
+            min_sharpe = (opt["min_variance_return"] - 4.5) / opt["min_variance_volatility"] if opt["min_variance_volatility"] else 0
+            st.metric("Sharpe", f"{min_sharpe:.2f}")
+            st.metric("Retorno Esperado", f"{opt['min_variance_return']:.1f}%")
+            st.metric("Volatilidad Mínima", f"{opt['min_variance_volatility']:.1f}%")
+
+            w_mv = opt["min_variance_weights"]
+            fig_mv = go.Figure(go.Bar(
+                x=list(w_mv.keys()),
+                y=[v * 100 for v in w_mv.values()],
+                marker_color="#10b981",
+                text=[f"{v*100:.1f}%" for v in w_mv.values()],
+                textposition="outside",
+            ))
+            fig_mv.update_layout(
+                title="Pesos óptimos (Mín. Varianza)", height=250,
+                margin=dict(l=0, r=0, t=35, b=0),
+                yaxis_title="Peso (%)", showlegend=False,
+            )
+            st.plotly_chart(fig_mv, use_container_width=True)
+
+        # Frontera eficiente
+        frontier = opt.get("efficient_frontier", [])
+        if frontier:
+            st.markdown("**Frontera Eficiente**")
+            fe_vols = [p["volatility"] for p in frontier]
+            fe_rets = [p["expected_return"] for p in frontier]
+            fe_sharpes = [p["sharpe"] for p in frontier]
+
+            fig_fe = go.Figure()
+            fig_fe.add_trace(go.Scatter(
+                x=fe_vols, y=fe_rets, mode="lines+markers",
+                marker=dict(color=fe_sharpes, colorscale="Viridis", showscale=True,
+                            colorbar=dict(title="Sharpe"), size=8),
+                line=dict(color="#888", width=1),
+                name="Frontera eficiente",
+                hovertemplate="Volat: %{x:.1f}%<br>Ret: %{y:.1f}%<br>Sharpe: %{marker.color:.2f}",
+            ))
+            # Punto portafolio actual
+            port_vol_actual = metricas["volatility"]
+            port_ret_actual = metricas["expected_return"]
+            fig_fe.add_trace(go.Scatter(
+                x=[port_vol_actual], y=[port_ret_actual],
+                mode="markers", marker=dict(color="red", size=12, symbol="star"),
+                name="Portafolio actual",
+            ))
+            fig_fe.add_trace(go.Scatter(
+                x=[opt["max_sharpe_volatility"]], y=[opt["max_sharpe_return"]],
+                mode="markers", marker=dict(color="blue", size=12, symbol="diamond"),
+                name="Max Sharpe",
+            ))
+            fig_fe.add_trace(go.Scatter(
+                x=[opt["min_variance_volatility"]], y=[opt["min_variance_return"]],
+                mode="markers", marker=dict(color="green", size=12, symbol="square"),
+                name="Mín. Varianza",
+            ))
+            fig_fe.update_layout(
+                height=380,
+                xaxis_title="Volatilidad anualizada (%)",
+                yaxis_title="Retorno esperado (%)",
+                margin=dict(l=0, r=0, t=20, b=0),
+                hovermode="closest",
+            )
+            st.plotly_chart(fig_fe, use_container_width=True)
+            st.caption(
+                "La frontera eficiente muestra las combinaciones óptimas de riesgo-retorno. "
+                "Portafolios sobre la curva dominan a los que están debajo."
+            )
+
+        # Comparación de pesos: actual vs óptimo
+        st.markdown("**Comparación: Pesos Actuales vs Óptimos (Max Sharpe)**")
+        comp_rows = []
+        for t in tickers_ok:
+            w_act = pf["weights"].get(t, 0)
+            w_opt = opt["max_sharpe_weights"].get(t, 0)
+            diff = w_opt - w_act
+            accion = "Aumentar" if diff > 0.03 else ("Reducir" if diff < -0.03 else "Mantener")
+            comp_rows.append({
+                "Ticker": t,
+                "Actual %": f"{w_act*100:.1f}%",
+                "Óptimo Max Sharpe %": f"{w_opt*100:.1f}%",
+                "Diferencia pp": f"{diff*100:+.1f}",
+                "Acción Sugerida": accion,
+            })
+        st.dataframe(pd.DataFrame(comp_rows), use_container_width=True, hide_index=True)
+
+
 def render_main_dashboard():
     """Renderiza el dashboard principal."""
     render_sidebar()
@@ -1161,7 +1594,7 @@ def render_main_dashboard():
     </div>
     """, unsafe_allow_html=True)
 
-    tab1, tab2 = st.tabs(["Análisis de Activos", "Historial de Alertas"])
+    tab1, tab2, tab3 = st.tabs(["Análisis de Activos", "Historial de Alertas", "Portafolio"])
 
     with tab1:
         if st.session_state.get("run_analysis", False):
@@ -1216,6 +1649,13 @@ def render_main_dashboard():
                 st.markdown("")
                 render_recommendation_card(data['recomendacion'])
 
+            # Datos fundamentales SEC
+            st.markdown("---")
+            if data.get("sec_data"):
+                render_sec_card(data["sec_data"])
+            else:
+                st.caption("Datos fundamentales no incluidos en esta consulta.")
+
         else:
             st.info("Seleccione un activo en el panel lateral y presione 'Analizar' para comenzar")
 
@@ -1224,6 +1664,9 @@ def render_main_dashboard():
             render_alerts_history()
         else:
             st.warning("Inicie sesión para ver el historial de alertas")
+
+    with tab3:
+        render_portfolio_tab()
 
 
 def main():

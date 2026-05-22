@@ -30,7 +30,7 @@ from fastapi.responses import JSONResponse
 
 from .config import settings
 from .database import init_db
-from .routers import auth_router, predict_router, alerts_router
+from .routers import auth_router, predict_router, alerts_router, portfolio_router
 
 # Configuración de logging
 LOG_DIR = os.path.join(os.path.dirname(__file__), "..", "logs")
@@ -161,6 +161,7 @@ async def global_exception_handler(request: Request, exc: Exception):
 app.include_router(auth_router)
 app.include_router(predict_router)
 app.include_router(alerts_router)
+app.include_router(portfolio_router)
 
 
 # Endpoints de estado

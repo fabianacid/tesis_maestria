@@ -38,7 +38,8 @@ from ..agents import (
     ModelAgent,
     SentimentAgent,
     RecommendationAgent,
-    AlertAgent
+    AlertAgent,
+    SECAgent,
 )
 
 # Configuración de logging
@@ -51,15 +52,15 @@ router = APIRouter(
 )
 
 # Instanciar agentes (singleton pattern)
-# Usar 1 año de datos para tener suficientes features para el ensemble ML
 market_agent = MarketAgent(ventana_ma=20, periodo_historico="2y")
-model_agent = ModelAgent(ventana_entrenamiento=504)  # 2 años para mayor precisión
+model_agent = ModelAgent(ventana_entrenamiento=504)
 sentiment_agent = SentimentAgent()
 recommendation_agent = RecommendationAgent()
 alert_agent = AlertAgent(
     umbral_warning=settings.ALERT_THRESHOLD_WARNING,
     umbral_critical=settings.ALERT_THRESHOLD_CRITICAL
 )
+sec_agent = SECAgent()
 
 
 @router.get(
@@ -79,24 +80,12 @@ alert_agent = AlertAgent(
 )
 async def predict_ticker(
     ticker: str,
-    forzar_actualizacion: bool = Query(
-        False,
-        description="Forzar actualización de datos ignorando caché"
-    ),
-    umbral_warning: float = Query(
-        None,
-        description="Umbral personalizado para alertas de advertencia (%)",
-        ge=0.1,
-        le=20.0
-    ),
-    umbral_critical: float = Query(
-        None,
-        description="Umbral personalizado para alertas críticas (%)",
-        ge=0.5,
-        le=30.0
-    ),
+    forzar_actualizacion: bool = Query(False, description="Forzar actualización ignorando caché"),
+    umbral_warning: float = Query(None, description="Umbral advertencia personalizado (%)", ge=0.1, le=20.0),
+    umbral_critical: float = Query(None, description="Umbral crítico personalizado (%)", ge=0.5, le=30.0),
+    incluir_sec: bool = Query(True, description="Incluir datos fundamentales SEC/yfinance"),
     db: Session = Depends(get_db),
-    current_user: Optional[Usuario] = Depends(get_optional_current_user)
+    current_user: Optional[Usuario] = Depends(get_optional_current_user),
 ):
     """
     Ejecuta análisis completo para un ticker.
@@ -137,28 +126,31 @@ async def predict_ticker(
         loop = asyncio.get_event_loop()
 
         # ========================================
-        # PASOS 1 + 3 EN PARALELO: Market y Sentiment
-        # SentimentAgent no depende de MarketAgent, se ejecutan simultáneamente
+        # PASOS 1 + 3 EN PARALELO: Market, Sentiment y SEC (si aplica)
         # ========================================
-        market_data, sentiment = await asyncio.gather(
-            loop.run_in_executor(
-                None,
-                partial(market_agent.obtener_datos, ticker, forzar_actualizacion)
-            ),
-            loop.run_in_executor(
-                None,
-                partial(sentiment_agent.analizar, ticker)
+        if incluir_sec:
+            market_data, sentiment, sec_data = await asyncio.gather(
+                loop.run_in_executor(None, partial(market_agent.obtener_datos, ticker, forzar_actualizacion)),
+                loop.run_in_executor(None, partial(sentiment_agent.analizar, ticker)),
+                loop.run_in_executor(None, partial(sec_agent.analizar, ticker)),
             )
-        )
+        else:
+            market_data, sentiment = await asyncio.gather(
+                loop.run_in_executor(None, partial(market_agent.obtener_datos, ticker, forzar_actualizacion)),
+                loop.run_in_executor(None, partial(sentiment_agent.analizar, ticker)),
+            )
+            sec_data = None
 
         if market_data is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Ticker '{ticker}' no encontrado en Yahoo Finance. Verifica que el símbolo sea correcto y que el activo esté listado."
+                detail=f"Ticker '{ticker}' no encontrado en Yahoo Finance. Verifica que el símbolo sea correcto y que el activo esté listado.",
             )
 
         logger.info(f"[{ticker}] MarketAgent: Datos obtenidos correctamente")
         logger.info(f"[{ticker}] SentimentAgent: Sentimiento={sentiment.sentimiento}")
+        if sec_data:
+            logger.info(f"[{ticker}] SECAgent: señal={sec_data.fundamental_signal}, filings={len(sec_data.recent_filings)}")
 
         # ========================================
         # PASO 2: Agente de Modelo (necesita market_data.precios)
@@ -258,6 +250,56 @@ async def predict_ticker(
             for idx in df_tail.index
         ]
 
+        # Serializar datos SEC si están disponibles
+        sec_dict = None
+        if sec_data:
+            sec_dict = {
+                "ticker": sec_data.ticker,
+                "company_name": sec_data.company_name,
+                "fundamental_signal": sec_data.fundamental_signal,
+                "fundamental_score": sec_data.fundamental_score,
+                "resumen": sec_data.resumen,
+                "disponible": sec_data.disponible,
+                "ratios": {
+                    "pe_ratio": sec_data.ratios.pe_ratio,
+                    "pb_ratio": sec_data.ratios.pb_ratio,
+                    "roe": sec_data.ratios.roe,
+                    "roa": sec_data.ratios.roa,
+                    "gross_margin": sec_data.ratios.gross_margin,
+                    "operating_margin": sec_data.ratios.operating_margin,
+                    "profit_margin": sec_data.ratios.profit_margin,
+                    "revenue_growth": sec_data.ratios.revenue_growth,
+                    "earnings_growth": sec_data.ratios.earnings_growth,
+                    "debt_to_equity": sec_data.ratios.debt_to_equity,
+                    "current_ratio": sec_data.ratios.current_ratio,
+                    "beta": sec_data.ratios.beta,
+                    "market_cap": sec_data.ratios.market_cap,
+                    "dividend_yield": sec_data.ratios.dividend_yield,
+                    "health_score": sec_data.ratios.health_score,
+                    "health_label": sec_data.ratios.health_label,
+                },
+                "balance": {
+                    "total_assets": sec_data.balance.total_assets,
+                    "total_liabilities": sec_data.balance.total_liabilities,
+                    "total_equity": sec_data.balance.total_equity,
+                    "total_debt": sec_data.balance.total_debt,
+                    "cash_and_equivalents": sec_data.balance.cash_and_equivalents,
+                    "revenue_ttm": sec_data.balance.revenue_ttm,
+                    "net_income_ttm": sec_data.balance.net_income_ttm,
+                    "operating_cash_flow": sec_data.balance.operating_cash_flow,
+                    "free_cash_flow": sec_data.balance.free_cash_flow,
+                },
+                "recent_filings": [
+                    {
+                        "form_type": f.form_type,
+                        "filing_date": f.filing_date,
+                        "description": f.description,
+                        "accession_number": f.accession_number,
+                    }
+                    for f in sec_data.recent_filings
+                ],
+            }
+
         response = PredictionResponse(
             ticker=ticker,
             fecha_analisis=datetime.now(),
@@ -270,7 +312,7 @@ async def predict_ticker(
                 senal=market_data.senal,
                 fecha_actualizacion=market_data.fecha_actualizacion,
                 precios_recientes=precios_recientes,
-                fechas_recientes=fechas_recientes
+                fechas_recientes=fechas_recientes,
             ),
             prediccion={
                 "precio_predicho": precio_predicho,
@@ -278,16 +320,15 @@ async def predict_ticker(
                 "horizonte_dias": 3,
                 "modelo": "ensemble_classification",
                 "metricas": {
-                    # Métricas de clasificación binaria (SUBIDA vs BAJADA)
                     "accuracy": accuracy,
                     "precision": precision,
                     "recall": recall,
                     "f1": f1,
-                    "auc": auc
+                    "auc": auc,
                 },
                 "parametros": parametros,
                 "modelos_detalle": modelos_usados,
-                "prob_subida": prob_subida_real
+                "prob_subida": prob_subida_real,
             },
             sentimiento=SentimentResponse(
                 ticker=ticker,
@@ -298,7 +339,7 @@ async def predict_ticker(
                 explicacion_simple=sentiment.explicacion_simple,
                 que_significa=sentiment.que_significa,
                 como_se_calcula=sentiment.como_se_calcula,
-                icono=sentiment.icono
+                icono=sentiment.icono,
             ),
             recomendacion=RecommendationResponse(
                 ticker=ticker,
@@ -311,7 +352,7 @@ async def predict_ticker(
                 explicacion_simple=recommendation.explicacion_simple,
                 nivel_riesgo_simple=recommendation.nivel_riesgo_simple,
                 porque_esta_recomendacion=recommendation.porque_esta_recomendacion,
-                icono=recommendation.icono
+                icono=recommendation.icono,
             ),
             alerta=AlertRealtimeResponse(
                 ticker=ticker,
@@ -319,8 +360,9 @@ async def predict_ticker(
                 nivel=alert_result.nivel.value,
                 mensaje=alert_result.mensaje,
                 variacion_pct=alert_result.variacion_pct,
-                umbral_superado=alert_result.umbral_superado
-            )
+                umbral_superado=alert_result.umbral_superado,
+            ),
+            sec_data=sec_dict,
         )
 
         logger.info(f"Análisis completado para {ticker}")
