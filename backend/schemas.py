@@ -8,7 +8,7 @@ la integridad y formato correcto de la información.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field, EmailStr
 
 
@@ -233,3 +233,133 @@ class PredictionResponse(BaseModel):
     sentimiento: SentimentResponse
     recomendacion: RecommendationResponse
     alerta: AlertRealtimeResponse
+    sec_data: Optional[dict] = None
+
+
+# ============================================================
+# Schemas SEC / Fundamental
+# ============================================================
+
+class SECFilingSchema(BaseModel):
+    form_type: str
+    filing_date: str
+    description: str
+    accession_number: str
+
+
+class FinancialRatiosSchema(BaseModel):
+    pe_ratio: Optional[float] = None
+    pb_ratio: Optional[float] = None
+    ps_ratio: Optional[float] = None
+    ev_ebitda: Optional[float] = None
+    roe: Optional[float] = None
+    roa: Optional[float] = None
+    gross_margin: Optional[float] = None
+    operating_margin: Optional[float] = None
+    profit_margin: Optional[float] = None
+    revenue_growth: Optional[float] = None
+    earnings_growth: Optional[float] = None
+    debt_to_equity: Optional[float] = None
+    current_ratio: Optional[float] = None
+    quick_ratio: Optional[float] = None
+    dividend_yield: Optional[float] = None
+    beta: Optional[float] = None
+    market_cap: Optional[float] = None
+    health_score: float = 5.0
+    health_label: str = "neutral"
+
+
+class BalanceSummarySchema(BaseModel):
+    total_assets: Optional[float] = None
+    total_liabilities: Optional[float] = None
+    total_equity: Optional[float] = None
+    total_debt: Optional[float] = None
+    cash_and_equivalents: Optional[float] = None
+    revenue_ttm: Optional[float] = None
+    net_income_ttm: Optional[float] = None
+    operating_cash_flow: Optional[float] = None
+    free_cash_flow: Optional[float] = None
+
+
+class SECDataResponse(BaseModel):
+    ticker: str
+    company_name: str
+    ratios: FinancialRatiosSchema
+    balance: BalanceSummarySchema
+    recent_filings: List[SECFilingSchema]
+    fundamental_signal: str
+    fundamental_score: float
+    resumen: str
+    fecha_actualizacion: datetime
+    disponible: bool = True
+    error_msg: str = ""
+
+
+# ============================================================
+# Schemas de Portafolio
+# ============================================================
+
+class PortfolioRequest(BaseModel):
+    """Request para análisis de portafolio."""
+    tickers: List[str] = Field(..., min_length=2, description="Lista de tickers (mínimo 2)")
+    weights: List[float] = Field(..., min_length=2, description="Pesos de cada activo (se normalizan)")
+    forzar_actualizacion: bool = Field(default=False)
+
+
+class PortfolioMetricsSchema(BaseModel):
+    expected_return: float
+    volatility: float
+    sharpe_ratio: float
+    var_95: float
+    var_99: float
+    diversification_ratio: float
+    correlation_matrix: Dict[str, Dict[str, float]]
+    num_activos: int
+    beta_portfolio: Optional[float] = None
+
+
+class EfficientFrontierPointSchema(BaseModel):
+    weights: Dict[str, float]
+    expected_return: float
+    volatility: float
+    sharpe: float
+
+
+class PortfolioOptimizationSchema(BaseModel):
+    max_sharpe_weights: Dict[str, float]
+    max_sharpe_return: float
+    max_sharpe_volatility: float
+    max_sharpe_sharpe: float
+    min_variance_weights: Dict[str, float]
+    min_variance_return: float
+    min_variance_volatility: float
+    efficient_frontier: List[EfficientFrontierPointSchema]
+    disponible: bool
+
+
+class PortfolioAssetSchema(BaseModel):
+    ticker: str
+    weight: float
+    price: float
+    expected_return: float
+    volatility: float
+    recomendacion: str
+    tipo_recomendacion: str
+    confianza: float
+    senal_mercado: str
+    sentimiento: str
+    fundamental_signal: str
+    fundamental_score: float
+    variacion_pct: float
+
+
+class PortfolioResponse(BaseModel):
+    """Schema de respuesta completa del análisis de portafolio."""
+    tickers: List[str]
+    weights: Dict[str, float]
+    activos: List[PortfolioAssetSchema]
+    metricas: PortfolioMetricsSchema
+    optimizacion: PortfolioOptimizationSchema
+    recomendacion_portafolio: str
+    alertas: List[Dict[str, Any]]
+    fecha_analisis: datetime
