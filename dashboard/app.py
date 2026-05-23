@@ -1296,53 +1296,86 @@ def _color_by_rec(tipo: str) -> str:
 def render_portfolio_tab():
     """Renderiza la pestaña de análisis de portafolio."""
     st.markdown("### Análisis de Portafolio")
-    st.markdown("Ingresá los tickers y pesos de tus activos para obtener métricas de portafolio y optimización de Markowitz.")
+    st.markdown("Seleccioná los activos, asigná los pesos y presioná **Analizar Portafolio** para obtener métricas y optimización de Markowitz.")
 
-    # --- Formulario de entrada ---
-    with st.form("portfolio_form"):
-        col_t, col_w = st.columns([3, 2])
-        with col_t:
-            tickers_input = st.text_input(
-                "Tickers (separados por coma)",
-                value=st.session_state.get("portfolio_tickers_str", "AAPL, MSFT, GOOGL, AMZN"),
-                help="Ej: AAPL, MSFT, GOOGL, TSLA, NVDA",
+    TICKERS_POPULARES = [
+        "AAPL", "MSFT", "GOOGL", "AMZN", "TSLA", "NVDA", "META",
+        "JPM", "V", "MA", "UNH", "HD", "PG", "KO", "DIS",
+        "NFLX", "PYPL", "INTC", "AMD", "ORCL", "CRM", "ADBE",
+        "BRK-B", "XOM", "CVX", "GS", "BAC", "WMT", "COST"
+    ]
+
+    # --- Paso 1: selección de activos ---
+    st.markdown("**Paso 1 — Seleccioná los activos**")
+    col_sel, col_custom = st.columns([3, 2])
+    with col_sel:
+        selected = st.multiselect(
+            "Activos de la lista",
+            options=TICKERS_POPULARES,
+            default=st.session_state.get("pf_selected", ["AAPL", "MSFT", "GOOGL", "AMZN"]),
+            help="Podés elegir hasta 15 activos",
+        )
+        st.session_state.pf_selected = selected
+    with col_custom:
+        custom_input = st.text_input(
+            "Agregar tickers personalizados",
+            value=st.session_state.get("pf_custom", ""),
+            placeholder="Ej: BMA.BA, GGAL.BA, BABA",
+            help="Separados por coma — para tickers no disponibles en la lista",
+        )
+        st.session_state.pf_custom = custom_input
+
+    custom_tickers = [t.strip().upper() for t in custom_input.split(",") if t.strip()]
+    all_tickers = selected + [t for t in custom_tickers if t not in selected]
+
+    if len(all_tickers) < 2:
+        st.info("Seleccioná al menos 2 activos para continuar.")
+        return
+
+    if len(all_tickers) > 15:
+        st.warning("Máximo 15 activos. Se usarán los primeros 15.")
+        all_tickers = all_tickers[:15]
+
+    # --- Paso 2: asignación de pesos ---
+    st.markdown("**Paso 2 — Asigná los pesos (%)** — se normalizan automáticamente a 100%")
+    n = len(all_tickers)
+    default_w = round(100.0 / n, 1)
+    cols_per_row = min(n, 5)
+    rows = [all_tickers[i:i+cols_per_row] for i in range(0, n, cols_per_row)]
+    weights_raw = []
+    for row_tickers in rows:
+        cols = st.columns(len(row_tickers))
+        for col, ticker in zip(cols, row_tickers):
+            w = col.number_input(
+                ticker,
+                min_value=0.0,
+                max_value=100.0,
+                value=float(st.session_state.get(f"pf_w_{ticker}", default_w)),
+                step=1.0,
+                format="%.1f",
             )
-        with col_w:
-            weights_input = st.text_input(
-                "Pesos (separados por coma)",
-                value=st.session_state.get("portfolio_weights_str", "0.3, 0.3, 0.2, 0.2"),
-                help="Se normalizan automáticamente. Ej: 30, 30, 20, 20 o 0.3, 0.3, 0.2, 0.2",
-            )
-        submitted = st.form_submit_button("Analizar Portafolio", type="primary", use_container_width=True)
+            st.session_state[f"pf_w_{ticker}"] = w
+            weights_raw.append(w)
 
-    if submitted:
-        try:
-            tickers = [t.strip().upper() for t in tickers_input.split(",") if t.strip()]
-            weights = [float(w.strip()) for w in weights_input.split(",") if w.strip()]
-        except ValueError:
-            st.error("Los pesos deben ser números. Ej: 0.3, 0.3, 0.2, 0.2")
-            return
+    total = sum(weights_raw)
+    if total > 0:
+        weights_norm = [round(w / total, 4) for w in weights_raw]
+        st.caption(f"Suma actual: {total:.1f}%  →  pesos normalizados: {', '.join(f'{t} {w*100:.1f}%' for t, w in zip(all_tickers, weights_norm))}")
+    else:
+        st.error("Los pesos deben ser mayores a 0.")
+        return
 
-        if len(tickers) < 2:
-            st.error("Ingresá al menos 2 tickers.")
-            return
-        if len(tickers) != len(weights):
-            st.error(f"Cantidad de tickers ({len(tickers)}) y pesos ({len(weights)}) no coincide.")
-            return
-
-        st.session_state.portfolio_tickers_str = tickers_input
-        st.session_state.portfolio_weights_str = weights_input
-
-        with st.spinner(f"Analizando portafolio de {len(tickers)} activos... esto puede tomar 1-2 minutos"):
-            pf_data = analyze_portfolio(tickers, weights)
-
+    # --- Paso 3: analizar ---
+    if st.button("Analizar Portafolio", type="primary", use_container_width=True):
+        with st.spinner(f"Analizando portafolio de {n} activos... esto puede tomar 1-2 minutos"):
+            pf_data = analyze_portfolio(all_tickers, weights_norm)
         if pf_data:
             st.session_state.last_portfolio = pf_data
         else:
             return
 
     if "last_portfolio" not in st.session_state:
-        st.info("Ingresá los tickers y pesos del portafolio y presioná 'Analizar Portafolio'.")
+        st.info("Completá los pasos anteriores y presioná **Analizar Portafolio**.")
         return
 
     pf = st.session_state.last_portfolio
