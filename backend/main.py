@@ -2,7 +2,7 @@
 Aplicación Principal FastAPI
 
 Este módulo configura e inicializa la aplicación FastAPI del
-sistema multiagente de seguimiento y alertas financieras.
+Sistema Multiagente de Análisis y Optimización de Portafolios Financieros.
 
 Características:
 - Configuración de CORS para acceso desde el dashboard
@@ -15,6 +15,7 @@ La aplicación expone:
 - /auth/*: Endpoints de autenticación
 - /predict/*: Endpoints del sistema multiagente
 - /alerts/*: Gestión de alertas
+- /portfolio/*: Análisis y optimización de portafolios
 - /health: Estado del sistema
 - /docs: Documentación Swagger UI
 """
