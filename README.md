@@ -25,6 +25,7 @@ Prototipo funcional de un sistema inteligente basado en agentes para el seguimie
 - [API Endpoints](#api-endpoints)
   - [Autenticación](#autenticación)
   - [Predicción y Análisis](#predicción-y-análisis)
+  - [Portafolio](#portafolio)
   - [Alertas](#alertas)
   - [Estado del Sistema](#estado-del-sistema)
 - [Características de Seguridad](#características-de-seguridad)
@@ -43,6 +44,8 @@ Este proyecto implementa un sistema multiagente que integra:
 - **Análisis técnico** con 35+ indicadores y detección de anomalías
 - **Predicción de dirección de precios** con ensemble de 4 modelos base + 3 opcionales de clasificación ML
 - **Análisis de sentimiento** con 4 métodos NLP
+- **Datos fundamentales y filings SEC**: ratios financieros (P/E, ROE, márgenes, crecimiento) y acceso a la API pública de SEC EDGAR para 10-K, 10-Q y 8-K
+- **Análisis de portafolio**: métricas media-varianza, optimización de Markowitz (máximo Sharpe, mínima varianza), frontera eficiente y alertas de concentración/correlación
 - **Generación de recomendaciones** explicables multi-factor
 - **Sistema de alertas** con umbrales configurables
 - **Validación estricta de tickers** - rechaza símbolos inválidos con error HTTP 404
@@ -63,9 +66,17 @@ graph TB
     Router1 --> SA[ SentimentAgent<br/>Análisis NLP]
     Router1 --> RA[ RecommendationAgent<br/>Decisión Multi-Factor]
     Router1 --> AA[ AlertAgent<br/>Alertas]
+    Router1 --> SECA[ SECAgent<br/>Fundamentales + Filings]
+    Router1 --> PA[ PortfolioAgent<br/>Portafolio + Markowitz]
 
     MA --> YF[ Yahoo Finance]
     SA --> YF
+    SECA --> YF
+    SECA --> EDGAR[ SEC EDGAR API]
+    PA --> MA
+    PA --> MOA
+    PA --> SA
+    PA --> SECA
     MOA --> Cache[( Cache)]
     SA --> Cache
 
@@ -77,6 +88,8 @@ graph TB
     style SA fill:#fff3e0
     style RA fill:#f3e5f5
     style AA fill:#ffebee
+    style SECA fill:#e8eaf6
+    style PA fill:#fce4ec
 ```
 
 ### Flujo de Análisis Completo
@@ -127,10 +140,43 @@ graph TB
          │  • Genera alertas si necesario     │
          │  • Persiste en base de datos       │
          └────────────┬───────────────────────┘
+                      │ (paralelo con pasos 1+3)
+         ┌────────────▼───────────────────────┐
+         │  6. SECAgent                       │
+         │  • Ratios fundamentales (yfinance) │
+         │  • P/E, P/B, ROE, ROA, márgenes    │
+         │  • Crecimiento de ingresos/EPS     │
+         │  • Deuda/Capital, liquidez (CR/QR) │
+         │  • Filings recientes SEC EDGAR     │
+         │  • Score fundamental -1 a +1       │
+         └────────────┬───────────────────────┘
                       ▼
          ┌────────────────────────────────────┐
          │  Respuesta JSON completa           │
+         │  + sec_data incluido               │
          │  + Dashboard visualiza resultados  │
+         └────────────────────────────────────┘
+
+Flujo adicional para análisis de portafolio:
+
+         POST /portfolio/analyze
+         {tickers: [...], weights: [...]}
+                      ▼
+         ┌────────────────────────────────────┐
+         │  PortfolioAgent                    │
+         │  • Ejecuta pipeline completo       │
+         │    en paralelo para cada activo    │
+         │  • Matriz de covarianza histórica  │
+         │  • Retorno esperado anualizado     │
+         │  • Volatilidad del portafolio      │
+         │  • Sharpe ratio, VaR 95%/99%       │
+         │  • Beta vs S&P 500                 │
+         │  • Optimización Markowitz (scipy)  │
+         │    - Máximo Sharpe                 │
+         │    - Mínima varianza               │
+         │    - Frontera eficiente (15 pts)   │
+         │  • Alertas: concentración >40%,    │
+         │    correlación >0.85, VaR elevado  │
          └────────────────────────────────────┘
 ```
 
@@ -211,12 +257,48 @@ graph TB
    - Gestión de alertas leídas/no leídas
    - Integrable con notificaciones push/email
 
+6. **SECAgent**
+   - **Ratios fundamentales** vía `yfinance.info`:
+     - Valuación: P/E, P/B, P/S, EV/EBITDA
+     - Rentabilidad: ROE, ROA, margen bruto, operativo y neto
+     - Crecimiento: crecimiento de ingresos y ganancias (YoY)
+     - Deuda y liquidez: Deuda/Capital, Current Ratio, Quick Ratio
+     - Mercado: Beta, Market Cap, Dividend Yield
+   - **Balance resumido**: ingresos TTM, utilidad neta, flujo de caja libre, deuda total, efectivo
+   - **Filings SEC EDGAR** (API pública gratuita):
+     - Consulta automática del CIK por ticker
+     - Recupera los filings más recientes: 10-K, 10-Q, 8-K, DEF 14A
+     - Incluye fecha, tipo y descripción de cada filing
+   - **Score fundamental** (-1 a +1) con señal positivo/neutral/negativo
+   - Caché de 2 horas para minimizar llamadas externas
+   - Integrado en `GET /predict/{ticker}` como paso paralelo (param `incluir_sec=true`)
+
+7. **PortfolioAgent**
+   - Orquesta todos los agentes anteriores en paralelo (ThreadPoolExecutor) para cada activo
+   - **Métricas de portafolio** (teoría moderna de carteras):
+     - Retorno esperado anualizado (media histórica + predicción ML ponderadas)
+     - Volatilidad del portafolio: $\sigma_p = \sqrt{w^\top \Sigma w}$
+     - Ratio de Sharpe: $(R_p - R_f) / \sigma_p$, con $R_f = 4.5\%$ anual
+     - VaR paramétrico al 95% y 99%
+     - Ratio de diversificación
+     - Beta del portafolio vs S&P 500
+     - Matriz de correlación histórica completa
+   - **Optimización de Markowitz** (scipy.optimize):
+     - Portafolio de máximo Sharpe (restricción: pesos ∈ [1%, 65%], suma=1)
+     - Portafolio de mínima varianza
+     - Frontera eficiente (15 puntos)
+   - **Alertas de portafolio**: concentración >40%, correlación >0.85, VaR y Sharpe negativos
+   - Exposed via `POST /portfolio/analyze`
+
 ## Tecnologías
 
 - **Backend**: FastAPI, SQLAlchemy, Pydantic
-- **ML**: scikit-learn, pandas, numpy
-- **Datos**: yfinance
-- **Frontend**: Streamlit
+- **ML**: scikit-learn, XGBoost, LightGBM, pandas, numpy
+- **Optimización**: scipy (Markowitz, frontera eficiente)
+- **Datos de mercado**: yfinance
+- **Datos fundamentales**: yfinance (ratios), SEC EDGAR API pública (filings)
+- **NLP**: FinBERT, VADER, TextBlob, léxico financiero
+- **Frontend**: Streamlit, Plotly
 - **Seguridad**: JWT, bcrypt
 
 ## Estructura del Proyecto
@@ -232,15 +314,18 @@ proyecto_final/
 │   ├── auth.py              # Autenticación JWT
 │   ├── email_service.py     # Servicio de email (recuperación de contraseña)
 │   ├── routers/
-│   │   ├── auth_router.py   # Endpoints de autenticación
-│   │   ├── predict_router.py # Endpoints de predicción
-│   │   └── alerts_router.py  # Endpoints de alertas
+│   │   ├── auth_router.py      # Endpoints de autenticación
+│   │   ├── predict_router.py   # Endpoints de predicción (activo individual)
+│   │   ├── alerts_router.py    # Endpoints de alertas
+│   │   └── portfolio_router.py # Endpoints de análisis de portafolio
 │   └── agents/
-│       ├── market_agent.py
-│       ├── model_agent.py
-│       ├── sentiment_agent.py
-│       ├── recommendation_agent.py
-│       └── alert_agent.py
+│       ├── market_agent.py         # Datos de mercado e indicadores técnicos
+│       ├── model_agent.py          # Predicción ML (ensemble)
+│       ├── sentiment_agent.py      # Análisis NLP de sentimiento
+│       ├── recommendation_agent.py # Decisión multi-factor
+│       ├── alert_agent.py          # Evaluación de umbrales y alertas
+│       ├── sec_agent.py            # Fundamentales (yfinance) + filings SEC EDGAR
+│       └── portfolio_agent.py      # Análisis y optimización de portafolio
 ├── dashboard/
 │   └── app.py               # Dashboard Streamlit
 ├── docs/
@@ -494,6 +579,38 @@ El dashboard de Streamlit proporciona una interfaz visual completa para interact
   - Take Profit
   - Risk/Reward Ratio
 
+**Panel de Datos Fundamentales (SECAgent):**
+- Se muestra al pie del análisis de activo (si `incluir_sec=true`)
+- Tres columnas de ratios: Valuación (P/E, P/B, P/S, EV/EBITDA), Rentabilidad (ROE, ROA, márgenes), Crecimiento y Deuda
+-  Signal fundamental: positivo / neutral / negativo con score -1 a +1
+- Expander con Balance resumido (ingresos TTM, utilidad neta, FCL, deuda, efectivo)
+- Expander con filings recientes de SEC EDGAR (10-K, 10-Q, 8-K) con badges de color por tipo
+- Mensaje informativo para activos no-US sin CIK registrado en EDGAR
+
+###  Portafolio (tab 3)
+
+**Formulario de portafolio:**
+- Entrada de tickers separados por comas (ej: `AAPL, MSFT, GOOGL, AMZN`)
+- Entrada de pesos separados por comas (se normalizan automáticamente a suma=1)
+- Validación: mínimo 2, máximo 15 activos
+
+**Panel de métricas del portafolio:**
+```
+┌──────────┬──────────┬──────────┬──────────┬──────────┐
+│Retorno   │Volatili- │Sharpe    │VaR 95%   │Beta      │
+│Esperado  │dad       │Ratio     │          │          │
+│ 21.5%    │ 21.9%    │  0.78    │ -14.5%   │  1.10    │
+└──────────┴──────────┴──────────┴──────────┴──────────┘
+```
+
+**Visualizaciones:**
+- Gráfico de torta (Plotly): distribución de pesos por activo
+- Tabla de activos con precio, retorno esperado, volatilidad, señales técnica/sentimiento/fundamental
+- Mapa de calor de correlaciones (heatmap)
+- Gráficos de barras comparativos: pesos actuales vs Máximo Sharpe vs Mínima Varianza
+- Frontera eficiente (15 puntos) con marcadores para portafolio actual, máx Sharpe y mín varianza
+- Tabla comparativa de métricas entre los tres portafolios
+
 ###  Centro de Alertas
 ```
 ╔════════════════════════════════════════╗
@@ -692,8 +809,13 @@ password=SecurePass123!
 
 ### Predicción y Análisis
 
-#### `GET /predict/{ticker}` - Análisis completo
-**Ejemplo:** `GET /predict/AAPL`
+#### `GET /predict/{ticker}` - Análisis completo de activo individual
+**Ejemplo:** `GET /predict/AAPL?incluir_sec=true`
+
+**Query params:**
+- `incluir_sec` (bool, default `true`): incluye datos fundamentales SEC en la respuesta
+- `umbral_warning` (float): umbral de alerta personalizado (%)
+- `umbral_critical` (float): umbral crítico personalizado (%)
 
 **Headers:** `Authorization: Bearer {token}`
 
@@ -758,6 +880,43 @@ password=SecurePass123!
     },
     "prob_subida": 0.6231
   },
+  "sec_data": {
+    "ticker": "AAPL",
+    "company_name": "Apple Inc.",
+    "fundamental_signal": "positivo",
+    "fundamental_score": 0.893,
+    "resumen": "Fundamentales positivos: ROE=141.5%, P/E=37.5x, Rev.Growth=16.6%.",
+    "disponible": true,
+    "ratios": {
+      "pe_ratio": 37.5,
+      "pb_ratio": 42.7,
+      "roe": 1.415,
+      "roa": 0.298,
+      "profit_margin": 0.272,
+      "operating_margin": 0.315,
+      "revenue_growth": 0.166,
+      "earnings_growth": 0.243,
+      "debt_to_equity": 1.45,
+      "current_ratio": 0.87,
+      "beta": 1.065,
+      "market_cap": 4560000000000,
+      "dividend_yield": 0.0044,
+      "health_score": 9.5,
+      "health_label": "positivo"
+    },
+    "balance": {
+      "revenue_ttm": 451400000000,
+      "net_income_ttm": 122800000000,
+      "operating_cash_flow": 118300000000,
+      "free_cash_flow": 101100000000,
+      "total_debt": 97000000000,
+      "cash_and_equivalents": 67000000000
+    },
+    "recent_filings": [
+      {"form_type": "10-Q", "filing_date": "2026-05-01", "description": "10-Q", "accession_number": "0000320193-26-000055"},
+      {"form_type": "8-K",  "filing_date": "2026-04-30", "description": "8-K", "accession_number": "0000320193-26-000052"}
+    ]
+  },
   "sentiment": {
     "score": 0.42,
     "categoria": "positivo",
@@ -818,6 +977,77 @@ password=SecurePass123!
 **Response:** Retorna únicamente el objeto `sentiment` del ejemplo anterior
 
 
+
+### Portafolio
+
+#### `POST /portfolio/analyze` - Análisis completo de portafolio
+
+**Headers:** `Authorization: Bearer {token}` (opcional)
+
+**Request:**
+```json
+{
+  "tickers": ["AAPL", "MSFT", "GOOGL", "AMZN"],
+  "weights": [0.30, 0.30, 0.20, 0.20],
+  "forzar_actualizacion": false
+}
+```
+
+Los pesos se normalizan automáticamente a suma = 1. Se requieren mínimo 2 y máximo 15 activos.
+
+**Response:** `200 OK`
+```json
+{
+  "tickers": ["AAPL", "MSFT", "GOOGL", "AMZN"],
+  "weights": {"AAPL": 0.30, "MSFT": 0.30, "GOOGL": 0.20, "AMZN": 0.20},
+  "activos": [
+    {
+      "ticker": "AAPL",
+      "weight": 0.30,
+      "price": 310.23,
+      "expected_return": 34.5,
+      "volatility": 28.2,
+      "tipo_recomendacion": "mantener",
+      "senal_mercado": "neutral",
+      "sentimiento": "positivo",
+      "fundamental_signal": "positivo",
+      "fundamental_score": 0.893,
+      "variacion_pct": 0.56
+    }
+  ],
+  "metricas": {
+    "expected_return": 21.5,
+    "volatility": 21.9,
+    "sharpe_ratio": 0.776,
+    "var_95": -14.5,
+    "var_99": -29.4,
+    "diversification_ratio": 1.298,
+    "beta_portfolio": 1.095,
+    "num_activos": 4,
+    "correlation_matrix": {
+      "AAPL": {"AAPL": 1.0, "MSFT": 0.41, "GOOGL": 0.44, "AMZN": 0.47},
+      "MSFT": {"AAPL": 0.41, "MSFT": 1.0,  "GOOGL": 0.37, "AMZN": 0.54}
+    }
+  },
+  "optimizacion": {
+    "disponible": true,
+    "max_sharpe_weights": {"AAPL": 0.33, "MSFT": 0.01, "GOOGL": 0.65, "AMZN": 0.01},
+    "max_sharpe_return": 38.7,
+    "max_sharpe_volatility": 25.5,
+    "max_sharpe_sharpe": 1.340,
+    "min_variance_weights": {"AAPL": 0.276, "MSFT": 0.495, "GOOGL": 0.219, "AMZN": 0.01},
+    "min_variance_return": 19.2,
+    "min_variance_volatility": 21.1,
+    "efficient_frontier": [
+      {"expected_return": 19.2, "volatility": 21.1, "sharpe": 0.69, "weights": {...}},
+      {"expected_return": 38.7, "volatility": 25.5, "sharpe": 1.34, "weights": {...}}
+    ]
+  },
+  "recomendacion_portafolio": "Portafolio con señales mixtas. Ratio Sharpe moderado. Los activos ofrecen diversificación efectiva...",
+  "alertas": [],
+  "fecha_analisis": "2026-05-22T13:11:00"
+}
+```
 
 ### Alertas
 
@@ -1004,7 +1234,7 @@ python tests/test_performance.py
 -  **Latencia promedio: 3.20 segundos**
 -  **Mejora del 31.7%** después de primera iteración (caché: 4.04s → 2.76s)
 -  **10 tickers evaluados** × 3 iteraciones cada uno
--  **Todos los agentes operativos al 100%** (MarketAgent, ModelAgent, SentimentAgent, RecommendationAgent, AlertAgent)
+-  **Todos los agentes operativos al 100%** (MarketAgent, ModelAgent, SentimentAgent, RecommendationAgent, AlertAgent, SECAgent, PortfolioAgent)
 
 **Modelos de Machine Learning (Clasificación Binaria)** — configuración final (8 marzo 2026)
 - **Ensemble Accuracy: 57.0%** - Predice correctamente la dirección en ~57% de los casos (mejor que azar del 50%)
@@ -1044,7 +1274,7 @@ test_results/graficos/
 
 | Objetivo | Meta | Resultado | Estado |
 |----------|------|-----------|--------|
-| Arquitectura multiagente | 5 agentes | 5 agentes @ 100% |  |
+| Arquitectura multiagente | 5 agentes | 7 agentes @ 100% (+ SECAgent + PortfolioAgent) |  |
 | Predicción de dirección | > 50% Accuracy | 57.0% Accuracy |  |
 | Precision en clasificación | > 55% | 60.7% Precision |  |
 | Recall en detección | > 65% | 66.2% Recall |  |
@@ -1340,13 +1570,14 @@ Si encuentras un problema no listado aquí:
 
 ## Extensiones Futuras
 
-1. **Notificaciones en tiempo real**: Agregar WebSocket para actualización de alertas sin recargar página
+1. **Notificaciones en tiempo real**: WebSocket para actualización de alertas sin recargar página
 2. **Alertas por email/mensajería**: Envío de alertas por correo electrónico, Telegram o SMS
 3. **Escalabilidad**: Migrar a PostgreSQL y agregar caché Redis para mayor concurrencia
-4. **Backtesting**: Sistema de pruebas históricas de estrategias
-5. **Explicabilidad**: SHAP values para explicar predicciones del ensemble
-6. **Despliegue**: Containerización con Docker y pipeline CI/CD
-7. **Expansión geográfica**: Soporte para mercados internacionales y análisis en español
+4. **Explicabilidad avanzada**: SHAP values para descomponer la contribución de features en cada predicción del ensemble
+5. **Rebalanceo automático**: Detectar cuando el portafolio se aleja del óptimo de Markowitz y sugerir trades de rebalanceo
+6. **Datos alternativos**: Integrar volumen de búsquedas (Google Trends), sentimiento de redes sociales (Twitter/Reddit) y datos macroeconómicos
+7. **Despliegue**: Containerización con Docker y pipeline CI/CD
+8. **Expansión geográfica**: Soporte para mercados internacionales (ADRs, ETFs de emergentes) y análisis en español
 
 
 
