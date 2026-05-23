@@ -1,5 +1,5 @@
 """
-Dashboard Streamlit - Sistema Multiagente de Alertas Financieras
+Dashboard Streamlit - Sistema Multiagente de Análisis y Optimización de Portafolios Financieros
 
 Interfaz profesional para análisis de activos financieros.
 """
@@ -13,7 +13,7 @@ from typing import Optional, Dict, Any
 
 # Configuración de la página
 st.set_page_config(
-    page_title="Sistema de seguimiento y alertas para activos financieros",
+    page_title="Sistema Multiagente de Análisis y Optimización de Portafolios Financieros",
     page_icon="",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -431,7 +431,7 @@ def render_change_password_section():
 
 def render_auth_page():
     """Renderiza la página de autenticación."""
-    st.markdown("<h1 class='main-header'>Sistema de seguimiento y alertas para activos financieros</h1>", unsafe_allow_html=True)
+    st.markdown("<h1 class='main-header'>Sistema Multiagente de Análisis y Optimización de Portafolios Financieros</h1>", unsafe_allow_html=True)
     st.markdown("Plataforma de análisis para inversores minoristas")
     st.markdown("---")
 

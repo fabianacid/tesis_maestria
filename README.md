@@ -1,4 +1,4 @@
-# Sistema Multiagente de Seguimiento y Alerta para Activos Financieros
+# Sistema Multiagente de Análisis y Optimización de Portafolios Financieros
 
 Prototipo funcional de un sistema inteligente basado en agentes para el seguimiento y generación de alertas sobre activos financieros.
 

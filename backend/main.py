@@ -73,7 +73,7 @@ async def lifespan(app: FastAPI):
 
 # Crear instancia de FastAPI
 app = FastAPI(
-    title="Sistema Multiagente de Alertas Financieras",
+    title="Sistema Multiagente de Análisis y Optimización de Portafolios Financieros",
     description="""
     API REST del prototipo de sistema inteligente de seguimiento
     y alertas para activos financieros.
@@ -176,7 +176,7 @@ async def root():
     Endpoint raíz de la API.
     """
     return {
-        "mensaje": "Sistema Multiagente de Alertas Financieras",
+        "mensaje": "Sistema Multiagente de Análisis y Optimización de Portafolios Financieros",
         "version": "1.0.0",
         "docs": "/docs",
         "estado": "operativo"
