@@ -630,24 +630,31 @@ def render_prediction_card(prediccion: Dict, precio_actual: float = 0):
 
     precision_val = prediccion.get('metricas', {}).get('precision', 0) * 100
     accuracy_val = prediccion.get('metricas', {}).get('accuracy', 0) * 100
-    st.metric(
-        "Probabilidad de dirección",
-        f"{dir_label}: {fmt_num(prob_display, 1)}%",
-        help=(
-            "Cada modelo genera una probabilidad de subida con predict_proba().\n\n"
-            "Resultado = promedio ponderado:\n"
-            "P(subida) = Σ ( prob_modelo × peso_modelo )\n\n"
-            "El peso de cada modelo es proporcional a su accuracy en validación cruzada temporal (5 folds).\n\n"
-            "Modelos: Random Forest · Gradient Boosting · XGBoost · LightGBM\n\n"
-            "P(bajada) = 1 − P(subida)\n\n"
-            "⚠️ Esta probabilidad refleja la CONFIANZA del modelo, no su tasa de acierto histórica.\n"
-            f"Precisión histórica: {fmt_num(precision_val, 1)}% | Accuracy: {fmt_num(accuracy_val, 1)}%"
-        )
-    )
-    st.caption(
-        f"⚠️ Precisión histórica: {fmt_num(precision_val, 1)}% | Accuracy: {fmt_num(accuracy_val, 1)}%"
-        " — La probabilidad refleja la confianza del modelo, no su tasa de acierto histórica."
-    )
+    # Barra visual de probabilidad
+    st.markdown(f"""
+    <div style='margin:12px 0 4px 0'>
+        <div style='font-size:0.82rem;color:#666;margin-bottom:6px'>
+            Probabilidad de dirección
+            <span style='font-size:0.78rem;margin-left:6px;opacity:0.7'>
+                (confianza del modelo — no es la tasa de acierto histórica)
+            </span>
+        </div>
+        <div style='display:flex;border-radius:6px;overflow:hidden;height:28px'>
+            <div style='width:{prob_subida:.0f}%;background:#28a745;display:flex;align-items:center;
+                        justify-content:center;color:white;font-size:0.85rem;font-weight:600'>
+                ⬆️ {prob_subida:.0f}%
+            </div>
+            <div style='width:{prob_bajada:.0f}%;background:#dc3545;display:flex;align-items:center;
+                        justify-content:center;color:white;font-size:0.85rem;font-weight:600'>
+                ⬇️ {prob_bajada:.0f}%
+            </div>
+        </div>
+        <div style='font-size:0.78rem;color:#888;margin-top:4px'>
+            Tasa de acierto histórica del modelo: {fmt_num(accuracy_val, 1)}%
+            (un modelo aleatorio obtendría 50%)
+        </div>
+    </div>
+    """, unsafe_allow_html=True)
 
     # Detalles de modelos
     with st.expander("Ver detalles de los modelos de IA"):
@@ -681,28 +688,52 @@ def render_prediction_card(prediccion: Dict, precio_actual: float = 0):
             st.info(
                 f"Modelo con mejor rendimiento: **{nombres_modelos.get(mejor, mejor)}**  \n"
                 "ℹ️ Se elige el modelo con mayor **accuracy** promedio en validación cruzada temporal (5 folds). "
-                "Ese accuracy determina también su peso en el ensemble: mayor accuracy = mayor influencia en la probabilidad final. "
-                "No necesariamente es el que predice con mayor confianza hoy, sino el que históricamente acertó más veces."
+                "El peso de cada modelo en el ensemble se calcula por **AUC-ROC** (capacidad discriminativa), "
+                "que es más robusto que accuracy cuando las clases están desbalanceadas. "
+                "No necesariamente es el que predice con mayor confianza hoy, sino el que históricamente mejor discriminó subidas de bajadas."
             )
 
         # Métricas de clasificación (predicción de dirección)
         st.markdown("---")
-        st.markdown("**Métricas del Modelo (Clasificación):**")
-        st.caption("El modelo predice si el precio SUBE ⬆️ o BAJA ⬇️")
+        st.markdown("**¿Qué tan confiable es el modelo?**")
+        st.caption("Comparación vs un modelo aleatorio (50% de acierto por azar). Valores calculados con validación cruzada temporal (5 períodos).")
         metricas = prediccion.get('metricas', {})
         col1, col2, col3, col4 = st.columns(4)
         with col1:
             accuracy = metricas.get('accuracy', 0) * 100
-            st.metric("Accuracy", f"{fmt_num(accuracy, 1)}%", help="De todas las predicciones (SUBIDA y BAJADA), % de veces que el modelo acertó. Un modelo aleatorio obtendría ~50%.")
+            delta_acc = accuracy - 50
+            st.metric(
+                "Tasa de acierto",
+                f"{fmt_num(accuracy, 1)}%",
+                delta=f"{delta_acc:+.1f}pp vs azar",
+                delta_color="normal" if delta_acc >= 0 else "inverse",
+                help="De cada 100 predicciones, cuántas fueron correctas. Un modelo aleatorio acierta el 50% — cualquier valor por encima suma valor real."
+            )
+            st.progress(min(accuracy / 100, 1.0))
         with col2:
             precision = metricas.get('precision', 0) * 100
-            st.metric("Precisión", f"{fmt_num(precision, 1)}%", help="De las veces que el modelo predijo SUBIDA, % en que realmente subió. Baja precisión = muchas falsas alarmas de subida.")
+            st.metric(
+                "Precisión de subidas",
+                f"{fmt_num(precision, 1)}%",
+                help="Cuando el modelo dice 'va a subir', ¿cuántas veces tiene razón? Alto = pocas falsas alarmas de compra."
+            )
+            st.progress(min(precision / 100, 1.0))
         with col3:
             recall = metricas.get('recall', 0) * 100
-            st.metric("Recall", f"{fmt_num(recall, 1)}%", help="De todas las subidas reales que ocurrieron, % que el modelo logró detectar. Bajo recall = el modelo se pierde muchas subidas.")
+            st.metric(
+                "Detección de subidas",
+                f"{fmt_num(recall, 1)}%",
+                help="De todas las subidas reales que ocurrieron, ¿cuántas detectó el modelo? Alto = no se perdió oportunidades."
+            )
+            st.progress(min(recall / 100, 1.0))
         with col4:
             f1 = metricas.get('f1', 0) * 100
-            st.metric("F1-Score", f"{fmt_num(f1, 1)}%", help="Media armónica de Precisión y Recall: 2×(P×R)/(P+R). Penaliza fuertemente cuando uno de los dos es bajo. Valor mostrado: promedio de los 5 folds de validación cruzada temporal.")
+            st.metric(
+                "Equilibrio general",
+                f"{fmt_num(f1, 1)}%",
+                help="Combina precisión y detección en un solo número. Penaliza fuertemente si uno de los dos es bajo. Es la métrica más completa del modelo."
+            )
+            st.progress(min(f1 / 100, 1.0))
 
 
 def render_sentiment_card(sentimiento: Dict):
@@ -1393,7 +1424,24 @@ def render_portfolio_tab():
 
     # --- Recomendación general ---
     rec_text = pf.get("recomendacion_portafolio", "")
-    st.info(rec_text)
+    sharpe_temp = metricas["sharpe_ratio"]
+    if sharpe_temp >= 1:
+        _bg, _border, _col, _sem = "#d4edda", "#28a745", "#155724", "🟢"
+        _titulo = "Portafolio en buen estado"
+    elif sharpe_temp >= 0.5:
+        _bg, _border, _col, _sem = "#fff3cd", "#ffc107", "#856404", "🟡"
+        _titulo = "Portafolio con margen de mejora"
+    else:
+        _bg, _border, _col, _sem = "#f8d7da", "#dc3545", "#721c24", "🔴"
+        _titulo = "Portafolio requiere ajustes"
+
+    st.markdown(f"""
+    <div style='background:{_bg};border:2px solid {_border};color:{_col};
+                border-radius:12px;padding:18px 22px;margin-bottom:12px'>
+        <div style='font-size:1.25rem;font-weight:700;margin-bottom:8px'>{_sem} {_titulo}</div>
+        <p style='font-size:0.95rem;line-height:1.7;margin:0'>{rec_text}</p>
+    </div>
+    """, unsafe_allow_html=True)
 
     # --- Alertas del portafolio ---
     alertas = pf.get("alertas", [])
@@ -1410,23 +1458,60 @@ def render_portfolio_tab():
     st.markdown("<p class='section-header'>Métricas del Portafolio</p>", unsafe_allow_html=True)
     m1, m2, m3, m4, m5 = st.columns(5)
     sharpe = metricas["sharpe_ratio"]
+    vol = metricas["volatility"]
+    var_95 = metricas["var_95"]
+    div_ratio = metricas["diversification_ratio"]
+    ret_esp = metricas["expected_return"]
+
+    # Contexto visible (sin necesidad de hover)
+    sharpe_ctx = ("Excelente riesgo/retorno ✅" if sharpe >= 2
+                  else "Buena riesgo/retorno ✅" if sharpe >= 1
+                  else "Riesgo/retorno moderado ⚠️" if sharpe >= 0.5
+                  else "Riesgo/retorno bajo ❌")
     sharpe_color = "normal" if sharpe >= 0.5 else "inverse"
 
-    m1.metric("Retorno Esperado", f"{metricas['expected_return']:.1f}%",
+    vol_ctx = ("Volatilidad baja 🟢" if vol < 15
+               else "Volatilidad moderada 🟡" if vol < 25
+               else "Volatilidad alta 🔴")
+
+    var_ctx = f"En el peor 5% de días: −{abs(var_95):.1f}%"
+
+    div_ctx = ("Bien diversificado ✅" if div_ratio >= 1.3
+               else "Diversificación moderada ⚠️" if div_ratio >= 1.1
+               else "Baja diversificación ❌")
+
+    ret_ctx = ("Retorno alto ✅" if ret_esp >= 15
+               else "Retorno moderado 👍" if ret_esp >= 8
+               else "Retorno bajo ⚠️" if ret_esp >= 0
+               else "Retorno negativo ❌")
+
+    m1.metric("Retorno Esperado (anual)", f"{ret_esp:.1f}%",
+              delta=ret_ctx,
+              delta_color="normal" if ret_esp >= 0 else "inverse",
               help="Retorno anualizado ponderado (histórico + predicción ML)")
-    m2.metric("Volatilidad", f"{metricas['volatility']:.1f}%",
-              help="Desviación estándar anualizada del portafolio (√(w'Σw))")
+    m2.metric("Volatilidad (anual)", f"{vol:.1f}%",
+              delta=vol_ctx,
+              delta_color="off",
+              help="Oscilación típica del portafolio. Menor = más estable.")
     m3.metric("Sharpe Ratio", f"{sharpe:.2f}",
-              delta="bueno" if sharpe > 1.0 else ("moderado" if sharpe > 0.5 else "bajo"),
+              delta=sharpe_ctx,
               delta_color=sharpe_color,
-              help="(Retorno - Rf) / Volatilidad. Rf = 4.5% anual")
-    m4.metric("VaR 95%", f"{metricas['var_95']:.1f}%",
-              help="Pérdida máxima esperada con 95% de confianza (anualizado)")
-    m5.metric("Ratio Diversificación", f"{metricas['diversification_ratio']:.2f}",
-              help=">1 = beneficios de diversificación. 1 = correlación perfecta")
+              help="Retorno por unidad de riesgo. >1 = bueno, >2 = excelente. Rf = 4.5% anual")
+    m4.metric("VaR 95%", f"{var_95:.1f}%",
+              delta=var_ctx,
+              delta_color="off",
+              help="En el peor 5% de los días, la pérdida esperada (anualizado)")
+    m5.metric("Diversificación", f"{div_ratio:.2f}",
+              delta=div_ctx,
+              delta_color="off",
+              help=">1 = los activos se compensan entre sí. 1 = sin diversificación")
 
     if metricas.get("beta_portfolio") is not None:
-        st.caption(f"Beta del portafolio vs S&P 500: {metricas['beta_portfolio']:.2f}")
+        beta = metricas['beta_portfolio']
+        beta_ctx = ("Más volátil que el mercado" if beta > 1.1
+                    else "Menos volátil que el mercado" if beta < 0.9
+                    else "Similar volatilidad al mercado")
+        st.caption(f"Beta vs S&P 500: {beta:.2f} — {beta_ctx}")
 
     st.markdown("---")
 
@@ -1468,7 +1553,7 @@ def render_portfolio_tab():
                 "Fundamental": a["fundamental_signal"].capitalize(),
             })
         df_activos = pd.DataFrame(rows)
-        st.dataframe(df_activos, use_container_width=True, hide_index=True)
+        st.table(df_activos)
 
     st.markdown("---")
 
@@ -1610,7 +1695,92 @@ def render_portfolio_tab():
                 "Diferencia pp": f"{diff*100:+.1f}",
                 "Acción Sugerida": accion,
             })
-        st.dataframe(pd.DataFrame(comp_rows), use_container_width=True, hide_index=True)
+        st.table(pd.DataFrame(comp_rows))
+
+        # --- Conclusión y plan de acción ---
+        st.markdown("---")
+        st.markdown("<p class='section-header'>Conclusión y Plan de Acción</p>", unsafe_allow_html=True)
+
+        aumentar = [r for r in comp_rows if r["Acción Sugerida"] == "Aumentar"]
+        reducir  = [r for r in comp_rows if r["Acción Sugerida"] == "Reducir"]
+        mantener = [r for r in comp_rows if r["Acción Sugerida"] == "Mantener"]
+
+        sharpe_actual = metricas["sharpe_ratio"]
+        sharpe_optimo = opt["max_sharpe_sharpe"]
+        mejora_posible = sharpe_optimo - sharpe_actual
+
+        if mejora_posible > 0.3:
+            mejora_msg = f"Rebalanceando hacia los pesos óptimos podrías mejorar el Sharpe de **{sharpe_actual:.2f}** a **{sharpe_optimo:.2f}** (+{mejora_posible:.2f})."
+        elif mejora_posible > 0.05:
+            mejora_msg = f"El portafolio está cerca del óptimo (Sharpe actual {sharpe_actual:.2f} vs óptimo {sharpe_optimo:.2f})."
+        else:
+            mejora_msg = f"El portafolio ya está muy cerca del óptimo de Markowitz (Sharpe {sharpe_actual:.2f})."
+
+        lineas = [mejora_msg]
+        if aumentar:
+            tickers_a = ", ".join(f"**{r['Ticker']}** ({r['Óptimo Max Sharpe %']})" for r in aumentar)
+            lineas.append(f"📈 **Aumentar exposición en**: {tickers_a}")
+        if reducir:
+            tickers_r = ", ".join(f"**{r['Ticker']}** ({r['Óptimo Max Sharpe %']})" for r in reducir)
+            lineas.append(f"📉 **Reducir exposición en**: {tickers_r}")
+        if mantener and not aumentar and not reducir:
+            lineas.append("✅ La distribución actual está alineada con los pesos óptimos — no se requieren cambios significativos.")
+
+        # Señal fundamental: ¿cuántos activos tienen señal positiva?
+        activos_positivos = [a for a in activos if a.get("fundamental_signal") == "positivo"]
+        activos_negativos = [a for a in activos if a.get("fundamental_signal") == "negativo"]
+        if activos_positivos:
+            lineas.append(f"✅ {len(activos_positivos)} activo(s) con señal fundamental positiva: {', '.join(a['ticker'] for a in activos_positivos)}")
+        if activos_negativos:
+            lineas.append(f"⚠️ {len(activos_negativos)} activo(s) con señal fundamental negativa: {', '.join(a['ticker'] for a in activos_negativos)} — revisar antes de aumentar posición")
+
+        lineas.append("_Esta herramienta es de apoyo — no constituye asesoramiento financiero._")
+
+        for l in lineas:
+            st.markdown(f"- {l}")
+
+
+def render_executive_summary(data: Dict):
+    """Tarjeta de resumen ejecutivo con semáforo y veredicto en lenguaje simple."""
+    tipo = data['recomendacion']['tipo']
+    variacion = data['prediccion']['variacion_pct']
+    sent = data['sentimiento']['sentimiento']
+    senal_merc = data['mercado'].get('senal', 'neutral')
+    prob_subida = data['prediccion'].get('prob_subida', 0.5) * 100
+
+    if tipo == 'compra':
+        semaforo, bg, border, color_text, veredicto = "🟢", "#d4edda", "#28a745", "#155724", "SEÑAL DE COMPRA"
+    elif tipo == 'venta':
+        semaforo, bg, border, color_text, veredicto = "🔴", "#f8d7da", "#dc3545", "#721c24", "SEÑAL DE VENTA"
+    else:
+        semaforo, bg, border, color_text, veredicto = "🟡", "#fff3cd", "#ffc107", "#856404", "MANTENER"
+
+    dir_text = f"subida del {variacion:.1f}%" if variacion > 0 else f"baja del {abs(variacion):.1f}%"
+    sent_map = {"positivo": "positivo", "negativo": "negativo", "neutral": "neutral",
+                "muy positivo": "muy positivo", "muy negativo": "muy negativo",
+                "ligeramente positivo": "levemente positivo", "ligeramente negativo": "levemente negativo"}
+    sent_display = sent_map.get(sent, sent)
+    senal_display = {"alcista": "alcista (favorable)", "bajista": "bajista (desfavorable)", "neutral": "neutral"}.get(senal_merc, senal_merc)
+
+    accuracy_pct = data['prediccion'].get('metricas', {}).get('accuracy', 0) * 100
+    confianza_str = f"El modelo acierta el {accuracy_pct:.0f}% de las veces en promedio." if accuracy_pct > 0 else ""
+
+    st.markdown(f"""
+    <div style='background:{bg};border:2px solid {border};color:{color_text};
+                border-radius:12px;padding:20px 25px;margin-bottom:15px'>
+        <div style='font-size:1.6rem;font-weight:700;margin-bottom:10px'>{semaforo} {veredicto}</div>
+        <p style='font-size:1rem;line-height:1.7;margin:0'>
+            El modelo predice una <strong>{dir_text}</strong> en los próximos 3 días
+            (confianza: <strong>{prob_subida:.0f}%</strong>).
+            Las noticias muestran un sentimiento <strong>{sent_display}</strong>
+            y los indicadores técnicos son <strong>{senal_display}</strong>.
+            {confianza_str}
+        </p>
+        <p style='font-size:0.8rem;margin-top:10px;opacity:0.75'>
+            Herramienta de apoyo a la decisión — no constituye asesoramiento financiero.
+        </p>
+    </div>
+    """, unsafe_allow_html=True)
 
 
 def render_main_dashboard():
@@ -1667,6 +1837,8 @@ def render_main_dashboard():
 
             st.markdown(f"### {data['ticker']}")
             st.caption(f"Última actualización: {data['fecha_analisis'][:19].replace('T', ' ')}")
+
+            render_executive_summary(data)
 
             render_alert_card(data['alerta'])
 
@@ -1794,8 +1966,64 @@ def render_backtest_tab():
 
     col_a, col_b, col_c = st.columns(3)
     col_a.metric("Trades realizados", m["num_trades"])
-    col_b.metric("Win Rate", f"{m['win_rate']:.0f}%")
+    col_b.metric("Win Rate", f"{m['win_rate']:.0f}%",
+                 help="% de operaciones que terminaron en ganancia")
     col_c.metric("Trade promedio", f"{m['avg_trade_pct']:+.1f}%")
+
+    # ── Interpretación en lenguaje simple ─────────────────────────────────
+    st.markdown("#### ¿Qué significan estos resultados?")
+    interpretaciones = []
+
+    # Sortino
+    sortino = m.get('sortino_ratio', 0)
+    sortino_bm = bm.get('sortino_ratio', 0)
+    if sortino > 2:
+        interpretaciones.append(f"✅ **Sortino {sortino:.2f}**: Excelente manejo del riesgo — las caídas son pequeñas en relación al retorno obtenido.")
+    elif sortino > 1:
+        interpretaciones.append(f"👍 **Sortino {sortino:.2f}**: Buen manejo del riesgo a la baja.")
+    else:
+        interpretaciones.append(f"⚠️ **Sortino {sortino:.2f}**: El portafolio tuvo caídas considerables en relación al retorno. Buy & Hold obtuvo {sortino_bm:.2f}.")
+
+    # Calmar
+    calmar = m.get('calmar_ratio', 0)
+    if calmar > 1:
+        interpretaciones.append(f"✅ **Calmar {calmar:.2f}**: El retorno anual superó ampliamente la caída máxima del portafolio.")
+    elif calmar > 0.5:
+        interpretaciones.append(f"👍 **Calmar {calmar:.2f}**: El retorno cubre razonablemente la caída máxima observada.")
+    else:
+        interpretaciones.append(f"⚠️ **Calmar {calmar:.2f}**: La caída máxima fue grande en relación al retorno anual — el portafolio tuvo períodos de pérdida prolongados.")
+
+    # Alpha
+    alpha = m.get('alpha', 0)
+    if alpha > 5:
+        interpretaciones.append(f"✅ **Alpha {alpha:+.1f}pp**: La estrategia ML superó al Buy & Hold por {alpha:.1f} puntos porcentuales — añade valor real.")
+    elif alpha > 0:
+        interpretaciones.append(f"👍 **Alpha {alpha:+.1f}pp**: La estrategia ML superó ligeramente al Buy & Hold.")
+    elif alpha > -5:
+        interpretaciones.append(f"⚠️ **Alpha {alpha:+.1f}pp**: La estrategia ML rindió levemente por debajo del Buy & Hold. Considerar costos de transacción.")
+    else:
+        interpretaciones.append(f"❌ **Alpha {alpha:+.1f}pp**: Buy & Hold superó claramente a la estrategia ML en este período.")
+
+    # Max Drawdown
+    mdd = m.get('max_drawdown', 0)
+    if abs(mdd) < 10:
+        interpretaciones.append(f"✅ **Max Drawdown {mdd:.1f}%**: Caída máxima baja — el portafolio fue estable.")
+    elif abs(mdd) < 20:
+        interpretaciones.append(f"👍 **Max Drawdown {mdd:.1f}%**: Caída máxima moderada — típica en estrategias activas.")
+    else:
+        interpretaciones.append(f"⚠️ **Max Drawdown {mdd:.1f}%**: En el peor momento, el portafolio perdió {abs(mdd):.1f}% de su valor pico. Alta tolerancia al riesgo requerida.")
+
+    # Win Rate
+    wr = m.get('win_rate', 0)
+    if wr >= 55:
+        interpretaciones.append(f"✅ **Win Rate {wr:.0f}%**: Más de la mitad de las operaciones fueron rentables.")
+    elif wr >= 45:
+        interpretaciones.append(f"👍 **Win Rate {wr:.0f}%**: Tasa de acierto en operaciones cercana al promedio del mercado.")
+    else:
+        interpretaciones.append(f"⚠️ **Win Rate {wr:.0f}%**: Menos de la mitad de las operaciones resultaron en ganancia. Revisar la estrategia de entrada/salida.")
+
+    for interp in interpretaciones:
+        st.markdown(f"- {interp}")
 
     # ── Tabla comparativa ─────────────────────────────────────────────────
     with st.expander("Tabla comparativa completa"):

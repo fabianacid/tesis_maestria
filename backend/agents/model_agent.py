@@ -329,7 +329,7 @@ class ModelAgent:
             if not predicciones:
                 return self._prediccion_fallback(precios, ticker)
 
-            # Calcular pesos del ensemble basado en métricas (usando accuracy)
+            # Calcular pesos del ensemble basado en AUC-ROC / F1
             pesos = self._calcular_pesos_ensemble(metricas_modelos)
 
             # Predicción del ensemble: PROBABILIDAD de subida (promedio ponderado)
@@ -338,22 +338,22 @@ class ModelAgent:
                 for name, pred in predicciones.items()
             )
 
-            # Convertir probabilidad a predicción de precio
-            # Estimar variación basada en volatilidad histórica
-            volatilidad = precios['Close'].pct_change().std()
-            if prob_subida > 0.5:
-                # Predicción de subida
-                variacion_esperada = volatilidad * (prob_subida - 0.5) * 2  # Escalar de 0-0.5 a 0-1
-                precio_predicho = ultimo_precio * (1 + variacion_esperada)
-            else:
-                # Predicción de bajada
-                variacion_esperada = volatilidad * (0.5 - prob_subida) * 2
-                precio_predicho = ultimo_precio * (1 - variacion_esperada)
+            # Convertir probabilidad a predicción de precio usando transformación logit-tanh.
+            # Ventajas sobre escalado lineal:
+            # - Usa volatilidad reciente (20 días) en lugar de toda la historia
+            # - tanh satura en extremos: variación máxima ≈ vol_reciente * sqrt(3)
+            # - logit amplifica señales fuertes y amortigua señales débiles de forma natural
+            returns_hist = precios['Close'].pct_change().dropna()
+            vol_reciente = float(returns_hist.tail(20).std()) if len(returns_hist) >= 20 else float(returns_hist.std())
+            p_clip = float(np.clip(prob_subida, 0.01, 0.99))
+            logit = np.log(p_clip / (1 - p_clip))
+            variacion_esperada = vol_reciente * np.tanh(logit) * np.sqrt(3)  # horizonte 3 días
+            precio_predicho = ultimo_precio * (1 + variacion_esperada)
 
-            # Calcular intervalo de confianza basado en volatilidad
+            # Calcular intervalo de confianza basado en volatilidad reciente
             intervalo = (
-                ultimo_precio * (1 - volatilidad * 1.96),
-                ultimo_precio * (1 + volatilidad * 1.96)
+                ultimo_precio * (1 - vol_reciente * 1.96),
+                ultimo_precio * (1 + vol_reciente * 1.96)
             )
 
             # Métricas del mejor modelo (ahora basado en accuracy, no rmse)
@@ -567,8 +567,12 @@ class ModelAgent:
             X_valido = X_valido.iloc[:min_len]
             cambio_valido = cambio_valido.iloc[:min_len]
 
-        # Descartar zona neutra (|cambio| <= 0.5%): son ruido, no subida ni bajada real
-        mascara_significativa = abs(cambio_valido) > 0.005
+        # Umbral dinámico: percentil 25 de cambios absolutos.
+        # Con umbral fijo (0.5%) se eliminan demasiados datos en activos de baja volatilidad
+        # y muy pocos en activos de alta volatilidad. El percentil 25 garantiza conservar
+        # siempre el 75% más direccional de la muestra independientemente del régimen.
+        umbral_dinamico = max(float(np.percentile(np.abs(cambio_valido.values), 25)), 0.001)
+        mascara_significativa = np.abs(cambio_valido) > umbral_dinamico
         X_valido = X_valido[mascara_significativa]
         cambio_valido = cambio_valido[mascara_significativa]
 
@@ -713,7 +717,9 @@ class ModelAgent:
             for name, imp in zip(feature_names, modelo.feature_importances_):
                 importance[name] = float(imp)
         elif hasattr(modelo, 'coef_'):
-            for name, coef in zip(feature_names, np.abs(modelo.coef_)):
+            # coef_ puede ser (1, n_features) para clasificación binaria — aplanar antes de iterar
+            coef_flat = np.abs(modelo.coef_).ravel()
+            for name, coef in zip(feature_names, coef_flat):
                 importance[name] = float(coef)
 
         return prediccion, avg_metrics, importance
@@ -826,24 +832,26 @@ class ModelAgent:
         metricas: Dict[str, ModelMetrics]
     ) -> Dict[str, float]:
         """
-        Calcula pesos del ensemble basados en performance (CLASIFICACIÓN).
+        Calcula pesos del ensemble basados en AUC-ROC (con fallback a F1).
 
-        Usa accuracy para ponderar modelos (mejor accuracy = mayor peso).
+        AUC-ROC es más robusto que accuracy para clases desbalanceadas porque
+        mide capacidad discriminativa independientemente del umbral de decisión.
+        Si AUC no es informativo (== 0.5, modelo sin poder predictivo), se usa F1.
         """
         if not metricas:
             return {}
 
-        # Usar accuracy directamente (mejor accuracy = mayor peso)
-        accuracy_scores = {}
+        scores = {}
         for name, metrics in metricas.items():
-            accuracy_scores[name] = max(metrics.accuracy, 0.01)  # Evitar división por cero
+            if metrics.auc > 0.5:
+                scores[name] = max(metrics.auc - 0.5, 0.01)  # exceso sobre azar
+            else:
+                scores[name] = max(metrics.f1, 0.01)
 
-        # Normalizar pesos
-        total = sum(accuracy_scores.values())
+        total = sum(scores.values())
         if total > 0:
-            return {name: val / total for name, val in accuracy_scores.items()}
+            return {name: val / total for name, val in scores.items()}
         else:
-            # Pesos iguales si no hay información
             n = len(metricas)
             return {name: 1.0 / n for name in metricas}
 
@@ -993,14 +1001,17 @@ class ModelAgent:
         # Momentum
         momentum = (close.iloc[-1] - close.iloc[-5]) / close.iloc[-5] * 100
 
-        # Regresión
-        n = min(20, len(close))
-        X = np.arange(n).reshape(-1, 1)
-        y = close.tail(n).values
+        # Regresión sobre retornos (serie estacionaria) en lugar de precios absolutos.
+        # Los precios tienen tendencia no estacionaria; la pendiente sobre precios depende
+        # del nivel de precio y no es comparable entre activos ni en el tiempo.
+        returns_close = close.pct_change().dropna()
+        n = min(20, len(returns_close))
+        X_reg = np.arange(n).reshape(-1, 1)
+        y_reg = returns_close.tail(n).values
 
         modelo = LinearRegression()
-        modelo.fit(X, y)
-        pendiente = modelo.coef_[0] / np.mean(y) * 100
+        modelo.fit(X_reg, y_reg)
+        pendiente = modelo.coef_[0] * 252 * 100  # tendencia anualizada en %
 
         # Combinar señales
         signals = []
@@ -1016,9 +1027,10 @@ class ModelAgent:
         else:
             signals.append(0)
 
-        if pendiente > 0.5:
+        # Umbral en % anualizado: >10% tendencia alcista, <-10% bajista
+        if pendiente > 10:
             signals.append(1)
-        elif pendiente < -0.5:
+        elif pendiente < -10:
             signals.append(-1)
         else:
             signals.append(0)

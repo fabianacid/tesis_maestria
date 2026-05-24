@@ -24,6 +24,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 import re
 import hashlib
+import xml.etree.ElementTree as ET
+import urllib.request as _url_request
 
 import numpy as np
 
@@ -33,6 +35,15 @@ try:
     YFINANCE_AVAILABLE = True
 except ImportError:
     YFINANCE_AVAILABLE = False
+
+# SEC EDGAR — fuente oficial, sin API key. Solo requiere User-Agent válido.
+_SEC_EDGAR_RSS = (
+    "https://www.sec.gov/cgi-bin/browse-edgar"
+    "?action=getcompany&CIK={ticker}&type=8-K"
+    "&dateb=&owner=include&count=10&search_text=&output=atom"
+)
+_SEC_USER_AGENT = "PortfolioAnalysisApp research@portfolioanalysis.com"
+_SEC_ATOM_NS = {"atom": "http://www.w3.org/2005/Atom"}
 
 # Opcional: NLTK
 try:
@@ -422,7 +433,10 @@ class SentimentAgent:
 
             for news in news_items:
                 text = f"{news['titulo']}. {news.get('contenido', '')}"
-                relevancia = news.get('relevancia', 0.5)
+                # Relevancia base * decaimiento exponencial por antigüedad
+                relevancia_base = news.get('relevancia', 0.5)
+                peso_recencia = self._calcular_peso_recencia(news.get('fecha', datetime.now().isoformat()))
+                relevancia = relevancia_base * peso_recencia
 
                 # Analizar con cada modelo
                 model_scores = self._analizar_texto_ensemble(text)
@@ -753,85 +767,67 @@ class SentimentAgent:
 
     def _obtener_noticias(self, ticker: str) -> List[Dict]:
         """
-        Obtiene noticias REALES para análisis usando Yahoo Finance.
+        Obtiene noticias de múltiples fuentes y las combina ordenadas por fecha.
 
-        Intenta obtener noticias reales de yfinance.
-        Si no hay noticias disponibles, retorna lista vacía.
+        Fuentes (en orden de prioridad):
+        1. SEC EDGAR — filings 8-K oficiales, máxima credibilidad
+        2. Yahoo Finance — noticias generales del mercado
         """
-        noticias = []
+        noticias: List[Dict] = []
 
-        # Intentar obtener noticias reales de Yahoo Finance
+        # Fuente 1: SEC EDGAR (filings 8-K)
+        noticias_edgar = self._obtener_noticias_edgar(ticker)
+        noticias.extend(noticias_edgar)
+
+        # Fuente 2: Yahoo Finance
         if YFINANCE_AVAILABLE:
             try:
                 stock = yf.Ticker(ticker)
                 news_data = stock.news
 
                 if news_data:
-                    logger.info(f"[{ticker}] Obtenidas {len(news_data)} noticias reales de Yahoo Finance")
+                    logger.info(f"[{ticker}] Yahoo Finance: {len(news_data)} noticias obtenidas")
 
-                    for item in news_data[:10]:  # Limitar a 10 noticias
-                        # La estructura puede estar anidada bajo 'content' o directa
+                    EMPRESA_NOMBRES = {
+                        'AAPL': 'apple', 'GOOGL': 'google', 'GOOG': 'google',
+                        'MSFT': 'microsoft', 'AMZN': 'amazon', 'TSLA': 'tesla',
+                        'META': 'meta', 'NVDA': 'nvidia', 'JPM': 'jpmorgan',
+                        'V': 'visa', 'WMT': 'walmart',
+                    }
+                    nombre_empresa = EMPRESA_NOMBRES.get(ticker.upper(), '')
+
+                    for item in news_data[:10]:
                         content = item.get('content', item)
-
-                        # Extraer título
                         titulo = content.get('title', '')
                         if not titulo:
                             continue
 
-                        # Extraer fecha
-                        # Puede ser pubDate (string ISO) o providerPublishTime (timestamp)
                         pub_date = content.get('pubDate', '')
                         if pub_date:
                             try:
-                                # Formato ISO: '2026-01-16T19:30:00Z'
                                 fecha = datetime.fromisoformat(pub_date.replace('Z', '+00:00'))
-                            except:
+                            except Exception:
                                 fecha = datetime.now()
                         else:
                             timestamp = item.get('providerPublishTime', 0)
-                            if timestamp:
-                                fecha = datetime.fromtimestamp(timestamp)
-                            else:
-                                fecha = datetime.now()
+                            fecha = datetime.fromtimestamp(timestamp) if timestamp else datetime.now()
 
-                        # Extraer fuente
                         provider = content.get('provider', {})
-                        if isinstance(provider, dict):
-                            fuente = provider.get('displayName', 'Yahoo Finance')
-                        else:
-                            fuente = item.get('publisher', 'Yahoo Finance')
+                        fuente = provider.get('displayName', 'Yahoo Finance') if isinstance(provider, dict) else item.get('publisher', 'Yahoo Finance')
 
-                        # Extraer contenido/resumen
-                        contenido = content.get('summary', '')
-                        if not contenido:
-                            contenido = content.get('description', titulo)
+                        contenido = content.get('summary', '') or content.get('description', titulo)
 
-                        # Calcular relevancia: penalizar si el ticker no aparece en el título
                         texto_busqueda = (titulo + ' ' + contenido).lower()
                         ticker_en_texto = ticker.lower() in texto_busqueda
-                        # Mapas de nombre de empresa por ticker
-                        EMPRESA_NOMBRES = {
-                            'AAPL': 'apple', 'GOOGL': 'google', 'GOOG': 'google',
-                            'MSFT': 'microsoft', 'AMZN': 'amazon', 'TSLA': 'tesla',
-                            'META': 'meta', 'NVDA': 'nvidia', 'JPM': 'jpmorgan',
-                            'V': 'visa', 'WMT': 'walmart',
-                        }
-                        nombre_empresa = EMPRESA_NOMBRES.get(ticker.upper(), '')
-                        empresa_en_texto = nombre_empresa and nombre_empresa in texto_busqueda
+                        empresa_en_texto = bool(nombre_empresa and nombre_empresa in texto_busqueda)
 
                         news_type = content.get('contentType', item.get('type', 'STORY'))
-                        base_relevancia = 0.8 if news_type == 'STORY' else (0.6 if news_type == 'VIDEO' else 0.7)
+                        base_relevancia = 0.8 if news_type == 'STORY' else 0.6
+                        relevancia = base_relevancia if (ticker_en_texto or empresa_en_texto) else base_relevancia * 0.4
 
-                        if ticker_en_texto or empresa_en_texto:
-                            relevancia = base_relevancia
-                        else:
-                            relevancia = base_relevancia * 0.4  # penalizar noticias no relacionadas
-
-                        # Extraer URL (yfinance 1.0: canonicalUrl o clickThroughUrl dentro de content)
                         canonical = content.get('canonicalUrl', {})
                         click_through = content.get('clickThroughUrl', {})
-                        url = (canonical.get('url', '') or click_through.get('url', '') or
-                               item.get('link', ''))
+                        url = canonical.get('url', '') or click_through.get('url', '') or item.get('link', '')
 
                         noticias.append({
                             'titulo': titulo,
@@ -841,21 +837,110 @@ class SentimentAgent:
                             'relevancia': relevancia,
                             'entidades': [ticker],
                             'url': url,
-                            'es_noticia_real': True
+                            'es_noticia_real': True,
+                            'tipo': 'news'
                         })
-
-                    if noticias:
-                        logger.info(f"[{ticker}] Procesadas {len(noticias)} noticias reales")
-                        return noticias
 
             except Exception as e:
                 logger.warning(f"[{ticker}] Error obteniendo noticias de Yahoo Finance: {e}")
                 import traceback
                 logger.debug(traceback.format_exc())
 
-        # Si no hay noticias reales disponibles, retornar lista vacía
-        logger.info(f"[{ticker}] No hay noticias reales disponibles")
-        return []
+        if not noticias:
+            logger.info(f"[{ticker}] No hay noticias disponibles en ninguna fuente")
+            return []
+
+        # Ordenar por fecha descendente (más recientes primero)
+        def _parse_fecha(n: Dict):
+            try:
+                f = n.get('fecha', '')
+                return datetime.fromisoformat(str(f).replace('Z', '+00:00')).replace(tzinfo=None)
+            except Exception:
+                return datetime.min
+
+        noticias.sort(key=_parse_fecha, reverse=True)
+        logger.info(f"[{ticker}] Total noticias combinadas: {len(noticias)} "
+                    f"(EDGAR: {len(noticias_edgar)}, Yahoo: {len(noticias) - len(noticias_edgar)})")
+        return noticias
+
+    def _calcular_peso_recencia(self, fecha_noticia) -> float:
+        """
+        Peso exponencial decreciente por antigüedad de la noticia.
+
+        Hoy=1.0, 3 días=0.70, 7 días=0.43, 14 días=0.19, 30 días=0.03.
+        Evita que noticias viejas dominen el score frente a las actuales.
+        """
+        try:
+            if isinstance(fecha_noticia, str):
+                fecha_noticia = datetime.fromisoformat(fecha_noticia.replace('Z', '+00:00'))
+            if hasattr(fecha_noticia, 'tzinfo') and fecha_noticia.tzinfo is not None:
+                fecha_noticia = fecha_noticia.replace(tzinfo=None)
+            dias = max(0.0, (datetime.now() - fecha_noticia).total_seconds() / 86400.0)
+            return float(np.exp(-0.12 * dias))
+        except Exception:
+            return 0.5
+
+    def _obtener_noticias_edgar(self, ticker: str) -> List[Dict]:
+        """
+        Obtiene filings 8-K de SEC EDGAR como fuente de noticias.
+
+        Los 8-K contienen eventos materiales: resultados de ganancias, cambios
+        de CEO, fusiones, investigaciones regulatorias — señales directas de precio.
+        No requiere API key; solo un User-Agent válido según política de SEC.
+        """
+        noticias: List[Dict] = []
+        url = _SEC_EDGAR_RSS.format(ticker=ticker)
+
+        try:
+            req = _url_request.Request(url, headers={"User-Agent": _SEC_USER_AGENT})
+            with _url_request.urlopen(req, timeout=10) as resp:
+                xml_data = resp.read()
+
+            root = ET.fromstring(xml_data)
+
+            for entry in root.findall("atom:entry", _SEC_ATOM_NS):
+                title_el = entry.find("atom:title", _SEC_ATOM_NS)
+                updated_el = entry.find("atom:updated", _SEC_ATOM_NS)
+                summary_el = entry.find("atom:summary", _SEC_ATOM_NS)
+                link_el = entry.find("atom:link", _SEC_ATOM_NS)
+
+                if title_el is None or not title_el.text:
+                    continue
+
+                titulo = title_el.text.strip()
+
+                if updated_el is not None and updated_el.text:
+                    try:
+                        fecha = datetime.fromisoformat(updated_el.text.replace('Z', '+00:00'))
+                    except Exception:
+                        fecha = datetime.now()
+                else:
+                    fecha = datetime.now()
+
+                contenido = ""
+                if summary_el is not None and summary_el.text:
+                    contenido = re.sub(r"<[^>]+>", " ", summary_el.text).strip()
+
+                url_filing = link_el.get("href", "") if link_el is not None else ""
+
+                noticias.append({
+                    'titulo': titulo,
+                    'fecha': fecha.isoformat(),
+                    'fuente': 'SEC EDGAR',
+                    'contenido': contenido,
+                    'relevancia': 0.95,  # máxima relevancia: filing oficial de la empresa
+                    'entidades': [ticker],
+                    'url': url_filing,
+                    'es_noticia_real': True,
+                    'tipo': 'regulatory_filing'
+                })
+
+            logger.info(f"[{ticker}] SEC EDGAR: {len(noticias)} filings 8-K obtenidos")
+
+        except Exception as e:
+            logger.warning(f"[{ticker}] SEC EDGAR no disponible: {e}")
+
+        return noticias
 
     def _generar_explicacion_simple(
         self,
@@ -932,13 +1017,25 @@ class SentimentAgent:
         }
 
         if n_noticias > 0:
-            # Tenemos noticias reales
-            como_se_calcula = f"NOTICIAS REALES: Analizamos {n_noticias} noticias recientes de Yahoo Finance"
+            # Identificar qué fuentes primarias están presentes
+            fuentes_set = set(fuentes_noticias) if fuentes_noticias else set()
+            tiene_edgar = "SEC EDGAR" in fuentes_set
+            tiene_yahoo = any(f != "SEC EDGAR" for f in fuentes_set)
 
-            # Agregar fuentes si están disponibles
-            if fuentes_noticias:
-                fuentes_unicas = list(set(fuentes_noticias))[:4]
-                como_se_calcula += f" (fuentes: {', '.join(fuentes_unicas)})"
+            if tiene_edgar and tiene_yahoo:
+                origen = "SEC EDGAR y Yahoo Finance"
+            elif tiene_edgar:
+                origen = "SEC EDGAR (filings oficiales)"
+            else:
+                origen = "Yahoo Finance"
+
+            como_se_calcula = f"NOTICIAS REALES: Analizamos {n_noticias} noticias recientes de {origen}"
+
+            # Mostrar publishers de Yahoo (excluir SEC EDGAR del listado de fuentes secundarias)
+            publishers = [f for f in fuentes_noticias if f != "SEC EDGAR"]
+            publishers_unicos = list(dict.fromkeys(publishers))[:4]  # deduplicar preservando orden
+            if publishers_unicos:
+                como_se_calcula += f" (publicadores: {', '.join(publishers_unicos)})"
 
             como_se_calcula += ". "
 
