@@ -1336,39 +1336,44 @@ def render_portfolio_tab():
         st.warning("Máximo 15 activos. Se usarán los primeros 15.")
         all_tickers = all_tickers[:15]
 
-    # --- Paso 2: asignación de pesos ---
+    # --- Paso 2 y 3: pesos + submit dentro de form (evita re-render al escribir) ---
     st.markdown("**Paso 2 — Asigná los pesos (%)** — se normalizan automáticamente a 100%")
     n = len(all_tickers)
     default_w = round(100.0 / n, 1)
-    cols_per_row = min(n, 5)
-    rows = [all_tickers[i:i+cols_per_row] for i in range(0, n, cols_per_row)]
-    weights_raw = []
-    for row_tickers in rows:
-        cols = st.columns(len(row_tickers))
-        for col, ticker in zip(cols, row_tickers):
-            w = col.number_input(
-                ticker,
-                min_value=0.0,
-                max_value=100.0,
-                value=float(st.session_state.get(f"pf_w_{ticker}", default_w)),
-                step=1.0,
-                format="%.1f",
-            )
-            st.session_state[f"pf_w_{ticker}"] = w
-            weights_raw.append(w)
 
-    total = sum(weights_raw)
+    with st.form("portfolio_weights_form"):
+        cols_per_row = min(n, 5)
+        rows = [all_tickers[i:i+cols_per_row] for i in range(0, n, cols_per_row)]
+        weights_raw = []
+        for row_tickers in rows:
+            cols = st.columns(len(row_tickers))
+            for col, ticker in zip(cols, row_tickers):
+                w = col.number_input(
+                    ticker,
+                    min_value=0.0,
+                    max_value=100.0,
+                    value=float(st.session_state.get(f"pf_w_{ticker}", default_w)),
+                    step=1.0,
+                    format="%.1f",
+                )
+                weights_raw.append((ticker, w))
+
+        submitted = st.form_submit_button("Analizar Portafolio", type="primary", use_container_width=True)
+
+    total = sum(w for _, w in weights_raw)
     if total > 0:
-        weights_norm = [round(w / total, 4) for w in weights_raw]
-        st.caption(f"Suma actual: {total:.1f}%  →  pesos normalizados: {', '.join(f'{t} {w*100:.1f}%' for t, w in zip(all_tickers, weights_norm))}")
+        weights_norm = {t: round(w / total, 4) for t, w in weights_raw}
+        st.caption(f"Suma actual: {total:.1f}%  →  pesos: {', '.join(f'{t} {v*100:.1f}%' for t, v in weights_norm.items())}")
     else:
         st.error("Los pesos deben ser mayores a 0.")
         return
 
-    # --- Paso 3: analizar ---
-    if st.button("Analizar Portafolio", type="primary", use_container_width=True):
+    if submitted:
+        for t, w in weights_raw:
+            st.session_state[f"pf_w_{t}"] = w
+        w_list = list(weights_norm.values())
         with st.spinner(f"Analizando portafolio de {n} activos... esto puede tomar 1-2 minutos"):
-            pf_data = analyze_portfolio(all_tickers, weights_norm)
+            pf_data = analyze_portfolio(all_tickers, w_list)
         if pf_data:
             st.session_state.last_portfolio = pf_data
         else:
@@ -1627,7 +1632,7 @@ def render_main_dashboard():
     </div>
     """, unsafe_allow_html=True)
 
-    tab1, tab2, tab3 = st.tabs(["Análisis de Activos", "Historial de Alertas", "Portafolio"])
+    tab1, tab2, tab3, tab4 = st.tabs(["Análisis de Activos", "Historial de Alertas", "Portafolio", "Backtesting"])
 
     with tab1:
         if st.session_state.get("run_analysis", False):
@@ -1700,6 +1705,172 @@ def render_main_dashboard():
 
     with tab3:
         render_portfolio_tab()
+
+    with tab4:
+        render_backtest_tab()
+
+
+def render_backtest_tab():
+    """Renderiza la pestaña de backtesting walk-forward."""
+    st.markdown("### Backtesting Walk-Forward con Señales ML")
+    st.markdown(
+        "Reentrena el ensemble de ML cada **trimestre** (63 días) con una ventana de "
+        "**504 días** y simula operaciones con **Backtrader**. "
+        "Comisión: 0.1% por operación. Tasa libre de riesgo: 4.5% anual."
+    )
+
+    col1, col2, col3 = st.columns([2, 1, 1])
+    with col1:
+        bt_ticker = st.text_input(
+            "Ticker",
+            value=st.session_state.get("bt_ticker", "AAPL"),
+            placeholder="AAPL",
+            key="bt_ticker_input",
+        )
+    with col2:
+        bt_years = st.selectbox("Período", options=[1, 2, 3, 5], index=2, key="bt_years_input")
+    with col3:
+        bt_cash = st.number_input("Capital inicial (USD)", min_value=1000, value=10000, step=1000, key="bt_cash_input")
+
+    if st.button("Ejecutar Backtest", type="primary", use_container_width=True):
+        ticker_clean = bt_ticker.strip().upper()
+        if not ticker_clean:
+            st.error("Ingresá un ticker válido.")
+            return
+        st.session_state.bt_ticker = ticker_clean
+
+        with st.spinner(f"Ejecutando backtest de {ticker_clean} ({bt_years} años)... ~1-2 minutos"):
+            try:
+                resp = requests.post(
+                    f"{st.session_state.get('api_url', 'http://localhost:8000')}/backtest/{ticker_clean}",
+                    params={"years": bt_years, "initial_cash": bt_cash},
+                    timeout=300,
+                )
+                if resp.status_code == 200:
+                    st.session_state.last_backtest = resp.json()
+                else:
+                    st.error(f"Error {resp.status_code}: {resp.json().get('detail', 'Error desconocido')}")
+                    return
+            except Exception as e:
+                st.error(f"Error al conectar con el backend: {e}")
+                return
+
+    if "last_backtest" not in st.session_state:
+        st.info("Configurá los parámetros y presioná **Ejecutar Backtest**.")
+        return
+
+    bt_data = st.session_state.last_backtest
+    m = bt_data["metrics"]
+    bm = bt_data["benchmark_metrics"]
+
+    st.caption(
+        f"Período: {bt_data['start_date']} → {bt_data['end_date']} | "
+        f"Ticker: {bt_data['ticker']} | "
+        f"Señales: {bt_data['buy_signals']} compras, {bt_data['sell_signals']} ventas"
+    )
+
+    # ── Métricas comparativas ─────────────────────────────────────────────
+    st.markdown("#### Métricas: Estrategia ML vs Buy & Hold")
+    cols = st.columns(6)
+    metrics_def = [
+        ("CAGR", "cagr", "%"),
+        ("Sharpe", "sharpe_ratio", ""),
+        ("Sortino", "sortino_ratio", ""),
+        ("Max Drawdown", "max_drawdown", "%"),
+        ("Retorno Total", "total_return", "%"),
+        ("Alpha vs B&H", "alpha", "pp"),
+    ]
+    for col, (label, key, unit) in zip(cols, metrics_def):
+        val = m[key]
+        ref = bm[key]
+        delta = val - ref
+        color = "normal" if abs(delta) < 0.5 else ("inverse" if key == "max_drawdown" else "normal")
+        col.metric(
+            label,
+            f"{val:.1f}{unit}",
+            delta=f"{delta:+.1f}{unit}" if key != "alpha" else None,
+            delta_color=color,
+        )
+
+    col_a, col_b, col_c = st.columns(3)
+    col_a.metric("Trades realizados", m["num_trades"])
+    col_b.metric("Win Rate", f"{m['win_rate']:.0f}%")
+    col_c.metric("Trade promedio", f"{m['avg_trade_pct']:+.1f}%")
+
+    # ── Tabla comparativa ─────────────────────────────────────────────────
+    with st.expander("Tabla comparativa completa"):
+        rows = []
+        all_keys = ["total_return", "cagr", "sharpe_ratio", "sortino_ratio",
+                    "max_drawdown", "calmar_ratio", "alpha", "beta", "num_trades", "win_rate", "avg_trade_pct"]
+        labels_map = {
+            "total_return": "Retorno Total (%)",
+            "cagr": "CAGR (%)",
+            "sharpe_ratio": "Sharpe Ratio",
+            "sortino_ratio": "Sortino Ratio",
+            "max_drawdown": "Max Drawdown (%)",
+            "calmar_ratio": "Calmar Ratio",
+            "alpha": "Alpha (pp)",
+            "beta": "Beta",
+            "num_trades": "N° Trades",
+            "win_rate": "Win Rate (%)",
+            "avg_trade_pct": "Trade Promedio (%)",
+        }
+        for key in all_keys:
+            rows.append({"Métrica": labels_map[key], "Estrategia ML": m[key], "Buy & Hold": bm.get(key, "-")})
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    # ── Curva de equity ───────────────────────────────────────────────────
+    st.markdown("#### Curva de Equity: Estrategia ML vs Buy & Hold")
+    eq = bt_data.get("equity_curve", [])
+    if eq:
+        eq_df = pd.DataFrame(eq)
+        eq_df["date"] = pd.to_datetime(eq_df["date"])
+
+        fig_eq = go.Figure()
+        fig_eq.add_trace(go.Scatter(
+            x=eq_df["date"], y=eq_df["value"],
+            name="Estrategia ML",
+            line=dict(color="#2196F3", width=2),
+        ))
+        fig_eq.add_trace(go.Scatter(
+            x=eq_df["date"], y=eq_df["benchmark"],
+            name="Buy & Hold",
+            line=dict(color="#FF9800", width=2, dash="dash"),
+        ))
+        fig_eq.update_layout(
+            xaxis_title="Fecha",
+            yaxis_title="Valor del portafolio (USD)",
+            legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
+            height=400,
+            margin=dict(l=40, r=20, t=30, b=40),
+        )
+        st.plotly_chart(fig_eq, use_container_width=True)
+
+        # Drawdown
+        eq_df["drawdown"] = (eq_df["value"] / eq_df["value"].cummax() - 1) * 100
+        fig_dd = go.Figure()
+        fig_dd.add_trace(go.Scatter(
+            x=eq_df["date"], y=eq_df["drawdown"],
+            fill="tozeroy", fillcolor="rgba(244,67,54,0.2)",
+            line=dict(color="#F44336", width=1),
+            name="Drawdown ML",
+        ))
+        fig_dd.update_layout(
+            xaxis_title="Fecha", yaxis_title="Drawdown (%)",
+            height=200, margin=dict(l=40, r=20, t=20, b=40),
+        )
+        st.plotly_chart(fig_dd, use_container_width=True)
+
+    # ── Historial de trades ────────────────────────────────────────────────
+    trades = bt_data.get("trades", [])
+    if trades:
+        st.markdown(f"#### Historial de Operaciones ({len(trades)} trades)")
+        trades_df = pd.DataFrame(trades)
+        trades_df["pnl_pct"] = trades_df["pnl_pct"].apply(lambda x: f"{x:+.2f}%")
+        trades_df.columns = ["Fecha Apertura", "Fecha Cierre", "Precio Entrada", "Precio Salida", "P&L %", "Resultado"]
+        st.dataframe(trades_df, use_container_width=True, hide_index=True)
+    else:
+        st.info("No se ejecutaron trades en el período de backtest.")
 
 
 def main():

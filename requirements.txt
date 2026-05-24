@@ -42,6 +42,9 @@ plotly==5.18.0
 # Optimización (Markowitz)
 scipy>=1.11.0
 
+# Backtesting
+backtrader==1.9.78.123
+
 # Utilidades
 python-dotenv==1.0.0
 joblib==1.3.2
