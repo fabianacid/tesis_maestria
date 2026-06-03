@@ -1,6 +1,8 @@
 # Sistema Multiagente de Análisis y Optimización de Portafolios Financieros
 
-Prototipo funcional de un sistema inteligente basado en agentes para el seguimiento y generación de alertas sobre activos financieros.
+Tesis Final — Maestría en Finanzas, Universidad Nacional de Rosario (UNR)
+
+**Autora:** Ing. María Fabiana Cid &nbsp;|&nbsp; **Director:** Ph.D. Luciano Machain (UNR)
 
 [![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.109-green.svg)](https://fastapi.tiangolo.com/)
@@ -46,6 +48,7 @@ Este proyecto implementa un sistema multiagente que integra:
 - **Análisis de sentimiento** con 4 métodos NLP
 - **Datos fundamentales y filings SEC**: ratios financieros (P/E, ROE, márgenes, crecimiento) y acceso a la API pública de SEC EDGAR para 10-K, 10-Q y 8-K
 - **Análisis de portafolio**: métricas media-varianza, optimización de Markowitz (máximo Sharpe, mínima varianza), frontera eficiente y alertas de concentración/correlación
+- **Backtesting walk-forward**: evaluación histórica de señales ML con Backtrader (reentrenamiento trimestral, métricas CAGR/Sharpe/Sortino/Calmar vs benchmark buy & hold)
 - **Generación de recomendaciones** explicables multi-factor
 - **Sistema de alertas** con umbrales configurables
 - **Validación estricta de tickers** - rechaza símbolos inválidos con error HTTP 404
@@ -68,6 +71,7 @@ graph TB
     Router1 --> AA[ AlertAgent<br/>Alertas]
     Router1 --> SECA[ SECAgent<br/>Fundamentales + Filings]
     Router1 --> PA[ PortfolioAgent<br/>Portafolio + Markowitz]
+    Router1 --> BA[ BacktestAgent<br/>Walk-Forward ML]
 
     MA --> YF[ Yahoo Finance]
     SA --> YF
@@ -90,6 +94,7 @@ graph TB
     style AA fill:#ffebee
     style SECA fill:#e8eaf6
     style PA fill:#fce4ec
+    style BA fill:#f0f4c3
 ```
 
 ### Flujo de Análisis Completo
@@ -155,6 +160,28 @@ graph TB
          │  Respuesta JSON completa           │
          │  + sec_data incluido               │
          │  + Dashboard visualiza resultados  │
+         └────────────────────────────────────┘
+
+Flujo de backtesting walk-forward:
+
+         POST /backtest/{ticker}?years=3&initial_cash=10000
+                      ▼
+         ┌────────────────────────────────────┐
+         │  BacktestAgent                     │
+         │  • Descarga datos históricos       │
+         │  • Genera señales walk-forward     │
+         │    (reentrenamiento trimestral,    │
+         │     ventana 504 días)              │
+         │  • MLSignalStrategy (Backtrader)   │
+         │    - Compra si prob_subida ≥ 0.54  │
+         │    - Venta si prob_subida ≤ 0.46   │
+         │    - Comisión 0.1% por operación   │
+         │  • Calcula métricas comparativas:  │
+         │    CAGR, Sharpe, Sortino,          │
+         │    max drawdown, Calmar,           │
+         │    win rate, alpha, beta           │
+         │  • Devuelve curva de equity +      │
+         │    log de operaciones              │
          └────────────────────────────────────┘
 
 Flujo adicional para análisis de portafolio:
@@ -275,26 +302,37 @@ Flujo adicional para análisis de portafolio:
 
 7. **PortfolioAgent**
    - Orquesta todos los agentes anteriores en paralelo (ThreadPoolExecutor) para cada activo
+   - **Retorno esperado**: `E[rᵢ] = 0.7 · r_hist + 0.3 · r_ml` (blending histórico + predicción ML)
    - **Métricas de portafolio** (teoría moderna de carteras):
-     - Retorno esperado anualizado (media histórica + predicción ML ponderadas)
-     - Volatilidad del portafolio: $\sigma_p = \sqrt{w^\top \Sigma w}$
-     - Ratio de Sharpe: $(R_p - R_f) / \sigma_p$, con $R_f = 4.5\%$ anual
+     - Volatilidad del portafolio: `σp = √(wᵀ Σ w)` con fallback correlación 0.3
+     - Ratio de Sharpe: `(Rp - Rf) / σp`, con `Rf = 4.5%` anual
      - VaR paramétrico al 95% y 99%
-     - Ratio de diversificación
-     - Beta del portafolio vs S&P 500
-     - Matriz de correlación histórica completa
-   - **Optimización de Markowitz** (scipy.optimize):
-     - Portafolio de máximo Sharpe (restricción: pesos ∈ [1%, 65%], suma=1)
+     - Ratio de diversificación y beta del portafolio vs S&P 500
+     - Matriz de correlación histórica (2 años)
+   - **Optimización de Markowitz** (scipy.optimize SLSQP):
+     - Portafolio de máximo Sharpe (pesos ∈ [1%, 65%], Σwᵢ=1)
      - Portafolio de mínima varianza
-     - Frontera eficiente (15 puntos)
-   - **Alertas de portafolio**: concentración >40%, correlación >0.85, VaR y Sharpe negativos
-   - Exposed via `POST /portfolio/analyze`
+     - Frontera eficiente (15 puntos equiespaciados)
+   - **Alertas de portafolio**: concentración >40%, correlación >0.85, VaR <-20%, Sharpe negativo
+   - Endpoint: `POST /portfolio/analyze`
+
+8. **BacktestAgent**
+   - Evaluación histórica walk-forward de señales ML usando **Backtrader**
+   - **Protocolo**: ventana de entrenamiento 504 días (TRAIN_WINDOW), paso trimestral 63 días (STEP)
+   - **MLSignalStrategy**: compra si `prob_subida ≥ 0.54`; venta si `≤ 0.46`; comisión 0.1%
+   - **Métricas calculadas** vs benchmark buy & hold:
+     - CAGR, Sharpe ratio, Sortino ratio, max drawdown, Calmar ratio
+     - Win rate, PnL promedio por operación, alpha y beta
+   - Devuelve curva de equity diaria + log de operaciones
+   - Sin data leakage: cada período usa solo datos anteriores al punto de evaluación
+   - Endpoint: `POST /backtest/{ticker}?years=3&initial_cash=10000`
 
 ## Tecnologías
 
 - **Backend**: FastAPI, SQLAlchemy, Pydantic
 - **ML**: scikit-learn, XGBoost, LightGBM, pandas, numpy
 - **Optimización**: scipy (Markowitz, frontera eficiente)
+- **Backtesting**: Backtrader (walk-forward, MLSignalStrategy)
 - **Datos de mercado**: yfinance
 - **Datos fundamentales**: yfinance (ratios), SEC EDGAR API pública (filings)
 - **NLP**: FinBERT, VADER, TextBlob, léxico financiero
@@ -318,6 +356,12 @@ proyecto_final/
 │   │   ├── predict_router.py   # Endpoints de predicción (activo individual)
 │   │   ├── alerts_router.py    # Endpoints de alertas
 │   │   └── portfolio_router.py # Endpoints de análisis de portafolio
+│   ├── routers/
+│   │   ├── auth_router.py          # Endpoints de autenticación
+│   │   ├── predict_router.py       # Endpoints de predicción (activo individual)
+│   │   ├── alerts_router.py        # Endpoints de alertas
+│   │   ├── portfolio_router.py     # Endpoints de análisis de portafolio
+│   │   └── backtest_router.py      # Endpoints de backtesting walk-forward
 │   └── agents/
 │       ├── market_agent.py         # Datos de mercado e indicadores técnicos
 │       ├── model_agent.py          # Predicción ML (ensemble)
@@ -325,7 +369,8 @@ proyecto_final/
 │       ├── recommendation_agent.py # Decisión multi-factor
 │       ├── alert_agent.py          # Evaluación de umbrales y alertas
 │       ├── sec_agent.py            # Fundamentales (yfinance) + filings SEC EDGAR
-│       └── portfolio_agent.py      # Análisis y optimización de portafolio
+│       ├── portfolio_agent.py      # Análisis y optimización de portafolio
+│       └── backtest_agent.py       # Backtesting walk-forward con Backtrader
 ├── dashboard/
 │   └── app.py               # Dashboard Streamlit
 ├── docs/
@@ -978,6 +1023,57 @@ password=SecurePass123!
 
 
 
+### Backtesting
+
+#### `POST /backtest/{ticker}` - Backtest walk-forward con señales ML
+
+**Ejemplo:** `POST /backtest/AAPL?years=3&initial_cash=10000`
+
+**Query params:**
+- `years` (int, 1-5, default `3`): período histórico a simular
+- `initial_cash` (float, default `10000`): capital inicial en USD
+
+**Headers:** `Authorization: Bearer {token}` (opcional)
+
+**Response:** `200 OK`
+```json
+{
+  "ticker": "AAPL",
+  "start_date": "2023-06-03",
+  "end_date": "2026-06-03",
+  "initial_cash": 10000.0,
+  "final_value": 12450.30,
+  "benchmark_final": 11820.50,
+  "signals_generated": 189,
+  "buy_signals": 62,
+  "sell_signals": 58,
+  "metrics": {
+    "total_return": 24.5,
+    "cagr": 7.58,
+    "sharpe_ratio": 0.821,
+    "sortino_ratio": 1.143,
+    "max_drawdown": -18.2,
+    "calmar_ratio": 0.417,
+    "num_trades": 58,
+    "win_rate": 53.4,
+    "avg_trade_pct": 0.42,
+    "alpha": 2.31,
+    "beta": 0.874
+  },
+  "benchmark_metrics": { "total_return": 18.2, "cagr": 5.73, "sharpe_ratio": 0.612 },
+  "equity_curve": [
+    {"date": "2023-06-05", "value": 10000.0, "benchmark": 10000.0},
+    {"date": "2023-06-06", "value": 10021.3, "benchmark": 10018.7}
+  ],
+  "trades": [
+    {"date_open": "2023-06-12", "date_close": "2023-06-28",
+     "entry_price": 184.50, "exit_price": 189.20, "pnl_pct": 2.55, "result": "ganancia"}
+  ]
+}
+```
+
+---
+
 ### Portafolio
 
 #### `POST /portfolio/analyze` - Análisis completo de portafolio
@@ -1231,10 +1327,9 @@ python tests/test_performance.py
 
 **Pruebas Funcionales** (Fecha: 9 febrero 2026)
 -  **30/30 pruebas exitosas (100% tasa de éxito)**
--  **Latencia promedio: 3.20 segundos**
--  **Mejora del 31.7%** después de primera iteración (caché: 4.04s → 2.76s)
+-  **Latencia promedio: 3.20 segundos** (configuración inicial) / **4.65 segundos** (configuración final con FinBERT)
 -  **10 tickers evaluados** × 3 iteraciones cada uno
--  **Todos los agentes operativos al 100%** (MarketAgent, ModelAgent, SentimentAgent, RecommendationAgent, AlertAgent, SECAgent, PortfolioAgent)
+-  **Todos los agentes operativos al 100%** (MarketAgent, ModelAgent, SentimentAgent, RecommendationAgent, AlertAgent, SECAgent, PortfolioAgent, BacktestAgent)
 
 **Modelos de Machine Learning (Clasificación Binaria)** — configuración final (8 marzo 2026)
 - **Ensemble Accuracy: 57.0%** - Predice correctamente la dirección en ~57% de los casos (mejor que azar del 50%)
@@ -1274,14 +1369,16 @@ test_results/graficos/
 
 | Objetivo | Meta | Resultado | Estado |
 |----------|------|-----------|--------|
-| Arquitectura multiagente | 5 agentes | 7 agentes @ 100% (+ SECAgent + PortfolioAgent) |  |
-| Predicción de dirección | > 50% Accuracy | 57.0% Accuracy |  |
-| Precision en clasificación | > 55% | 60.7% Precision |  |
-| Recall en detección | > 65% | 66.2% Recall |  |
-| Análisis sentimiento NLP | Ensemble 4 modelos | FinBERT+VADER+Lexicón+TextBlob |  |
-| Tiempo respuesta | < 5s | 3.20s promedio |  |
-| 20+ usuarios concurrentes | ≥ 20 | 25 usuarios @ 100% |  |
-| Dashboard funcional | Implementado | Streamlit |  |
+| Arquitectura multiagente | 5 agentes | 8 agentes @ 100% (+ SECAgent + PortfolioAgent + BacktestAgent) | ✅ |
+| Predicción de dirección | > 50% Accuracy | 57.0% Accuracy | ✅ |
+| Precision en clasificación | > 55% | 60.7% Precision | ✅ |
+| Recall en detección | > 65% | 66.2% Recall | ✅ |
+| Análisis sentimiento NLP | Ensemble 4 modelos | FinBERT+VADER+Lexicón+TextBlob | ✅ |
+| Optimización de portafolio | Markowitz | Máx Sharpe + Mín Varianza + Frontera eficiente | ✅ |
+| Backtesting walk-forward | Walk-forward ML | Backtrader + MLSignalStrategy + CAGR/Sharpe/Sortino/Calmar | ✅ |
+| Tiempo respuesta | < 5s | 4.65s promedio (config. final) | ✅ |
+| 10+ usuarios concurrentes | ≥ 10 | 10 usuarios @ 100% (25 en config. inicial) | ✅ |
+| Dashboard funcional | Implementado | Streamlit (4 pestañas) | ✅ |
 
 ####  Archivos de Resultados
 
@@ -1570,14 +1667,13 @@ Si encuentras un problema no listado aquí:
 
 ## Extensiones Futuras
 
-1. **Notificaciones en tiempo real**: WebSocket para actualización de alertas sin recargar página
-2. **Alertas por email/mensajería**: Envío de alertas por correo electrónico, Telegram o SMS
-3. **Escalabilidad**: Migrar a PostgreSQL y agregar caché Redis para mayor concurrencia
-4. **Explicabilidad avanzada**: SHAP values para descomponer la contribución de features en cada predicción del ensemble
-5. **Rebalanceo automático**: Detectar cuando el portafolio se aleja del óptimo de Markowitz y sugerir trades de rebalanceo
-6. **Datos alternativos**: Integrar volumen de búsquedas (Google Trends), sentimiento de redes sociales (Twitter/Reddit) y datos macroeconómicos
-7. **Despliegue**: Containerización con Docker y pipeline CI/CD
-8. **Expansión geográfica**: Soporte para mercados internacionales (ADRs, ETFs de emergentes) y análisis en español
+1. **Escalabilidad**: Migrar a PostgreSQL, múltiples workers Uvicorn y caché Redis para datos históricos y resultados del ModelAgent (objetivo: 50+ usuarios concurrentes)
+2. **Mejora del modelo predictivo**: Incorporar features macroeconómicos (VIX, tasa de interés, curva de rendimientos) y modelos de mayor capacidad (Temporal Fusion Transformer)
+3. **Rebalanceo automático con costos**: Detectar desviación del óptimo Markowitz e incorporar estimación de costos de transacción y restricciones de liquidez (Black & Litterman, 1992)
+4. **Datos alternativos**: Google Trends, sentimiento de redes sociales (Twitter/Reddit/X), datos macroeconómicos (FRED API) y cobertura de mercados latinoamericanos
+5. **Explicabilidad avanzada**: SHAP values para descomponer la contribución de los 52 features en cada predicción del ensemble
+6. **Alertas en tiempo real**: SMTP para alertas financieras críticas (actualmente solo para recuperación de contraseña), integración con Telegram/SMS
+7. **Despliegue en producción**: Containerización con Docker, pipeline CI/CD, despliegue en AWS/GCP/Azure con escalado horizontal
 
 
 
@@ -1596,10 +1692,23 @@ Si encuentras un problema no listado aquí:
 -  **[check_setup.py](check_setup.py)** 
     
 
-## Alumna:
+## Capturas del sistema
 
-Ing. María Fabiana Cid
+| Login | Dashboard | Análisis AAPL |
+|-------|-----------|---------------|
+| ![Login](captura_01_login.png) | ![Dashboard](captura_02_dashboard_principal.png) | ![AAPL](captura_03_analisis_AAPL.png) |
+
+| Portafolio Markowitz | Backtesting |
+|----------------------|-------------|
+| ![Portafolio](captura_04_portafolio_markowitz.png) | ![Backtest](captura_05_backtesting.png) |
+
+## Autora
+
+**Ing. María Fabiana Cid**
+Tesis Final — Maestría en Finanzas
+Universidad Nacional de Rosario (UNR)
+Director: Ph.D. Luciano Machain (UNR)
 
 ## Licencia
 
-Proyecto académico - Especialización en Inteligencia Artificial, FIUBA
+Proyecto académico — Maestría en Finanzas, Universidad Nacional de Rosario (UNR)
