@@ -77,6 +77,25 @@ test_results/CAPITULO_4_Y_5_TESIS.md
 test_results/INSTRUCCIONES_OVERLEAF.md
 test_results/capitulos_4_y_5.tex
 
+# Archivos temporales de Word
+~$*.docx
+~$*.xlsx
+~$*.pptx
+
+# Archivos de runtime
+backend.pid
+streamlit.log
+backend.log
+backend_err.log
+streamlit_err.log
+
+# Versiones intermedias de la tesis
+TI_Cid_Fabiana_V10.docx
+TI_Cid_Fabiana_V11.docx
+TI_Cid_Fabiana_V12.docx
+TI_Cid_Fabiana_V13.docx
+TI_Cid_Fabiana_V14.docx
+
 # Archivos LaTeX
 *.tex
 *.aux
