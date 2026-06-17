@@ -239,7 +239,8 @@ Flujo adicional para análisis de portafolio:
    - Feature engineering con 52 características técnicas
    - Ventana de entrenamiento: **504 días** (2 años)
    - Horizonte de predicción: **3 días**
-   - Walk-forward validation temporal con 5 splits
+   - Walk-forward validation temporal con 5 splits y **embargo de 3 días** (`gap=3`) para evitar filtración del target futuro hacia el set de validación (López de Prado, 2018)
+   - Selección del mejor modelo del ensemble por **F1-Score** (métrica principal para datasets desbalanceados)
    - Métricas de clasificación: **Accuracy**, **Precision**, **Recall**, **F1-Score**, **AUC-ROC**
    - Conversión de probabilidad a precio estimado usando volatilidad histórica
    - Expone `prob_subida` como campo explícito en la respuesta (probabilidad calibrada de subida)
@@ -1339,7 +1340,7 @@ python tests/test_performance.py
 - **AUC: 58.6%** - Capacidad de discriminación del modelo
 - **Variabilidad**: Accuracy varía entre 53.1% (TSLA, META) y 63.3% (GOOGL) según el ticker
 - **Mejor rendimiento**: GOOGL (63.3%), AAPL (59.9%), JPM (58.5%)
-- **Nota**: Clasificación de dirección a 3 días (SUBIDA/BAJADA), umbral target 0.5%, ventana 504 días, 5 folds
+- **Nota**: Clasificación de dirección a 3 días (SUBIDA/BAJADA), umbral dinámico (percentil 25), ventana 504 días, 5 folds con embargo de 3 días (`gap=3`), selección de modelo por F1-Score
 
 **Análisis de Sentimiento (NLP)**
 -  Ensemble de 4 modelos: FinBERT (40%), VADER (25%), Lexicón financiero (20%), TextBlob (15%)

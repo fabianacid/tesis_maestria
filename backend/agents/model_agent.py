@@ -357,7 +357,7 @@ class ModelAgent:
             )
 
             # Métricas del mejor modelo (ahora basado en accuracy, no rmse)
-            mejor_modelo = max(metricas_modelos.items(), key=lambda x: x[1].accuracy)
+            mejor_modelo = max(metricas_modelos.items(), key=lambda x: x[1].f1)
             mejor_metrics = mejor_modelo[1]
 
             # Calcular variación
@@ -598,7 +598,7 @@ class ModelAgent:
             return None, ModelMetrics(), {}
 
         # Time series split para validación (5 splits para mejor precisión)
-        tscv = TimeSeriesSplit(n_splits=5)
+        tscv = TimeSeriesSplit(n_splits=5, gap=3)
         metrics_list = []
         direction_correct = 0
         total_predictions = 0
