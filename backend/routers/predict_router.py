@@ -168,6 +168,9 @@ async def predict_ticker(
             parametros = {}
             modelos_usados = {}
             prob_subida_real = 0.5
+            features_importance_data = {}
+            mda_scores_data = {}
+            shap_values_data = {}
             logger.warning(f"[{ticker}] ModelAgent: Predicción no disponible")
         else:
             precio_predicho = prediction.precio_predicho
@@ -185,6 +188,9 @@ async def predict_ticker(
                 "pesos": prediction.pesos_ensemble
             }
             prob_subida_real = prediction.prob_subida
+            features_importance_data = prediction.features_importance
+            mda_scores_data = prediction.mda_scores
+            shap_values_data = prediction.shap_values
             logger.info(f"[{ticker}] ModelAgent: Predicción generada")
 
             # Persistir métricas si hay usuario autenticado
@@ -329,6 +335,9 @@ async def predict_ticker(
                 "parametros": parametros,
                 "modelos_detalle": modelos_usados,
                 "prob_subida": prob_subida_real,
+                "features_importance": features_importance_data,
+                "mda_scores": mda_scores_data,
+                "shap_values": shap_values_data,
             },
             sentimiento=SentimentResponse(
                 ticker=ticker,

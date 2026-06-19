@@ -56,9 +56,11 @@ except (ImportError, OSError):
     TORCH_AVAILABLE = False
 
 try:
+    import os as _os
+    _os.environ.setdefault("USE_TF", "0")   # evita que SHAP dispare la carga de TensorFlow
     import shap
     SHAP_AVAILABLE = True
-except ImportError:
+except (ImportError, Exception):
     SHAP_AVAILABLE = False
 
 warnings.filterwarnings('ignore')
@@ -1041,10 +1043,14 @@ class ModelAgent:
             try:
                 explainer = shap.TreeExplainer(rf)
                 shap_vals = explainer.shap_values(X_val_sel, check_additivity=False)
-                # Para clasificación binaria shap_values es lista [clase0, clase1]
-                if isinstance(shap_vals, list) and len(shap_vals) == 2:
-                    shap_vals = shap_vals[1]
-                shap_mean_abs = dict(zip(feature_names, np.mean(np.abs(shap_vals), axis=0)))
+                # shap 0.40-: lista [clase0, clase1]
+                # shap 0.41+: ndarray (n_samples, n_features, n_classes)
+                sv = np.array(shap_vals)
+                if sv.ndim == 3:
+                    sv = sv[:, :, 1]          # clase 1 (subida)
+                elif isinstance(shap_vals, list) and len(shap_vals) == 2:
+                    sv = np.array(shap_vals[1])
+                shap_mean_abs = dict(zip(feature_names, np.mean(np.abs(sv), axis=0).tolist()))
             except Exception as e:
                 logger.debug(f"SHAP skipped: {e}")
 
