@@ -1804,10 +1804,10 @@ def render_portfolio_tab():
 
         lineas = [mejora_msg]
         if aumentar:
-            tickers_a = ", ".join(f"**{r['Ticker']}** ({r['Óptimo Max Sharpe %']})" for r in aumentar)
+            tickers_a = ", ".join(f"**{r['Ticker']}** ({r['Max Sharpe %']})" for r in aumentar)
             lineas.append(f"📈 **Aumentar exposición en**: {tickers_a}")
         if reducir:
-            tickers_r = ", ".join(f"**{r['Ticker']}** ({r['Óptimo Max Sharpe %']})" for r in reducir)
+            tickers_r = ", ".join(f"**{r['Ticker']}** ({r['Max Sharpe %']})" for r in reducir)
             lineas.append(f"📉 **Reducir exposición en**: {tickers_r}")
         if mantener and not aumentar and not reducir:
             lineas.append("✅ La distribución actual está alineada con los pesos óptimos — no se requieren cambios significativos.")
