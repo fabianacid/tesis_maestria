@@ -47,8 +47,9 @@ Este proyecto implementa un sistema multiagente que integra:
 - **Predicción de dirección de precios** con ensemble de 4 modelos base + 3 opcionales de clasificación ML
 - **Análisis de sentimiento** con 4 métodos NLP
 - **Datos fundamentales y filings SEC**: ratios financieros (P/E, ROE, márgenes, crecimiento) y acceso a la API pública de SEC EDGAR para 10-K, 10-Q y 8-K
-- **Análisis de portafolio**: métricas media-varianza, optimización de Markowitz (máximo Sharpe, mínima varianza), frontera eficiente y alertas de concentración/correlación
-- **Backtesting walk-forward**: evaluación histórica de señales ML con Backtrader (reentrenamiento trimestral, métricas CAGR/Sharpe/Sortino/Calmar vs benchmark buy & hold)
+- **Análisis de portafolio**: métricas media-varianza, optimización de Markowitz (máximo Sharpe, mínima varianza), **Hierarchical Risk Parity (HRP)** (López de Prado, 2016), frontera eficiente y alertas de concentración/correlación
+- **Backtesting walk-forward**: evaluación histórica de señales ML con Backtrader (reentrenamiento trimestral, métricas CAGR/Sharpe/Sortino/Calmar vs dos benchmarks: Buy & Hold y SMA Crossover 20/50)
+- **Explicabilidad ML**: SHAP values (Lundberg & Lee, 2017), MDI (Mean Decrease Impurity) y MDA (Mean Decrease Accuracy) — tres métricas de importancia de features sobre el mismo Random Forest
 - **Generación de recomendaciones** explicables multi-factor
 - **Sistema de alertas** con umbrales configurables
 - **Validación estricta de tickers** - rechaza símbolos inválidos con error HTTP 404
@@ -176,12 +177,16 @@ Flujo de backtesting walk-forward:
          │    - Compra si prob_subida ≥ 0.54  │
          │    - Venta si prob_subida ≤ 0.46   │
          │    - Comisión 0.1% por operación   │
-         │  • Calcula métricas comparativas:  │
+         │  • Benchmarks comparativos:        │
+         │    - Buy & Hold                    │
+         │    - SMA Crossover 20/50           │
+         │      (golden/death cross)          │
+         │  • Métricas para los 3 escenarios: │
          │    CAGR, Sharpe, Sortino,          │
          │    max drawdown, Calmar,           │
          │    win rate, alpha, beta           │
-         │  • Devuelve curva de equity +      │
-         │    log de operaciones              │
+         │  • Devuelve curva de equity        │
+         │    (3 series) + log de operaciones │
          └────────────────────────────────────┘
 
 Flujo adicional para análisis de portafolio:
@@ -244,6 +249,11 @@ Flujo adicional para análisis de portafolio:
    - Métricas de clasificación: **Accuracy**, **Precision**, **Recall**, **F1-Score**, **AUC-ROC**
    - Conversión de probabilidad a precio estimado usando volatilidad histórica
    - Expone `prob_subida` como campo explícito en la respuesta (probabilidad calibrada de subida)
+   - **Importancia de features — tres métricas** sobre el Random Forest auxiliar:
+     - **MDI** (Mean Decrease Impurity): importancia por reducción de Gini en entrenamiento
+     - **MDA** (Mean Decrease Accuracy): importancia por permutación en validación temporal (López de Prado, 2018, Cap. 8); usa F1 como métrica base
+     - **SHAP** (SHapley Additive exPlanations, Lundberg & Lee, 2017): `mean|SHAP value|` por feature sobre el set de validación con `TreeExplainer`; compatible con SHAP ≥ 0.41 (ndarray 3D `[:, :, 1]` para clase "subida")
+   - **Selección de features MDI+MDA**: score combinado `0.6·MDI_norm + 0.4·MDA_norm`, filtra sobre la mediana (mínimo 10 features garantizados), reduciendo 52 → ~26 features
 
 3. **SentimentAgent** 
    - Ensemble de modelos NLP:
@@ -314,6 +324,10 @@ Flujo adicional para análisis de portafolio:
      - Portafolio de máximo Sharpe (pesos ∈ [1%, 65%], Σwᵢ=1)
      - Portafolio de mínima varianza
      - Frontera eficiente (15 puntos equiespaciados)
+   - **Hierarchical Risk Parity (HRP)** (López de Prado, 2016):
+     - Distancia de correlación → clustering jerárquico single-linkage → quasi-diagonalización (`leaves_list`) → bisección recursiva por varianza de cluster
+     - No invierte la matriz de covarianza — más robusto ante matrices mal condicionadas que Markowitz
+     - Se expone como tercer portafolio óptimo junto a Max Sharpe y Mín. Varianza
    - **Alertas de portafolio**: concentración >40%, correlación >0.85, VaR <-20%, Sharpe negativo
    - Endpoint: `POST /portfolio/analyze`
 
@@ -321,10 +335,13 @@ Flujo adicional para análisis de portafolio:
    - Evaluación histórica walk-forward de señales ML usando **Backtrader**
    - **Protocolo**: ventana de entrenamiento 504 días (TRAIN_WINDOW), paso trimestral 63 días (STEP)
    - **MLSignalStrategy**: compra si `prob_subida ≥ 0.54`; venta si `≤ 0.46`; comisión 0.1%
-   - **Métricas calculadas** vs benchmark buy & hold:
+   - **Dos benchmarks comparativos** (misma comisión 0.1%, mismo capital inicial):
+     - **Buy & Hold**: compra al inicio y mantiene durante todo el período
+     - **SMA Crossover (20/50)**: compra en golden cross (SMA20 cruza sobre SMA50), vende en death cross — estrategia técnica básica sin ML
+   - **Métricas calculadas** para los tres escenarios (ML, Buy & Hold, SMA Crossover):
      - CAGR, Sharpe ratio, Sortino ratio, max drawdown, Calmar ratio
      - Win rate, PnL promedio por operación, alpha y beta
-   - Devuelve curva de equity diaria + log de operaciones
+   - Devuelve curva de equity diaria con tres series (ML / B&H / SMA) + log de operaciones
    - Sin data leakage: cada período usa solo datos anteriores al punto de evaluación
    - Endpoint: `POST /backtest/{ticker}?years=3&initial_cash=10000`
 
@@ -332,7 +349,8 @@ Flujo adicional para análisis de portafolio:
 
 - **Backend**: FastAPI, SQLAlchemy, Pydantic
 - **ML**: scikit-learn, XGBoost, LightGBM, pandas, numpy
-- **Optimización**: scipy (Markowitz, frontera eficiente)
+- **Explicabilidad ML**: shap (TreeExplainer — SHAP values, MDI, MDA)
+- **Optimización**: scipy (Markowitz, HRP, frontera eficiente)
 - **Backtesting**: Backtrader (walk-forward, MLSignalStrategy)
 - **Datos de mercado**: yfinance
 - **Datos fundamentales**: yfinance (ratios), SEC EDGAR API pública (filings)
@@ -604,6 +622,10 @@ El dashboard de Streamlit proporciona una interfaz visual completa para interact
   ```
 -  Probabilidad de cada dirección por modelo individual
 -  Contribución de cada modelo en el ensemble (pesos)
+-  **Explicabilidad — "¿Qué variables impulsan esta predicción?"** (expander dentro de detalles del modelo):
+   - Gráfico SHAP Top 10 features (violeta) — `mean |SHAP value|` sobre validación temporal
+   - Gráfico MDI Top 10 features (verde) — Mean Decrease Impurity del mismo Random Forest
+   - Ambas metodologías con citas académicas (Lundberg & Lee 2017, López de Prado 2018)
 
 **Panel de Sentimiento:**
 -    Indicador visual de sentimiento
@@ -653,9 +675,9 @@ El dashboard de Streamlit proporciona una interfaz visual completa para interact
 - Gráfico de torta (Plotly): distribución de pesos por activo
 - Tabla de activos con precio, retorno esperado, volatilidad, señales técnica/sentimiento/fundamental
 - Mapa de calor de correlaciones (heatmap)
-- Gráficos de barras comparativos: pesos actuales vs Máximo Sharpe vs Mínima Varianza
-- Frontera eficiente (15 puntos) con marcadores para portafolio actual, máx Sharpe y mín varianza
-- Tabla comparativa de métricas entre los tres portafolios
+- Gráficos de barras comparativos: pesos actuales vs Máximo Sharpe (azul) vs Mínima Varianza (verde) vs **HRP** (ámbar)
+- Frontera eficiente (15 puntos) con marcadores para portafolio actual, máx Sharpe, mín varianza y **punto HRP**
+- Tabla comparativa de métricas entre los cuatro portafolios (incluye columna HRP %)
 
 ###  Centro de Alertas
 ```
@@ -921,10 +943,15 @@ password=SecurePass123!
     "parametros": {
       "ventana": 504,
       "n_features": 52,
+      "n_features_sel": 26,
       "n_modelos": "4-7 (según librerías instaladas)",
-      "mejor_modelo": "varía según ticker y entrenamiento"
+      "mejor_modelo": "varía según ticker y entrenamiento",
+      "method": "MDI+MDA"
     },
-    "prob_subida": 0.6231
+    "prob_subida": 0.6231,
+    "features_importance": {"macd_hist": 0.033, "sma_50": 0.018, "bb_pct": 0.014},
+    "mda_scores": {"roc_20": 0.021, "volatility_20": 0.018, "close_lag_1": 0.014},
+    "shap_values": {"macd_hist": 0.033, "sma_50": 0.018, "bb_pct": 0.014, "ema_ratio_26": 0.013, "sma_ratio_50": 0.013}
   },
   "sec_data": {
     "ticker": "AAPL",
@@ -1045,6 +1072,7 @@ password=SecurePass123!
   "initial_cash": 10000.0,
   "final_value": 12450.30,
   "benchmark_final": 11820.50,
+  "sma_final": 11340.20,
   "signals_generated": 189,
   "buy_signals": 62,
   "sell_signals": 58,
@@ -1062,9 +1090,22 @@ password=SecurePass123!
     "beta": 0.874
   },
   "benchmark_metrics": { "total_return": 18.2, "cagr": 5.73, "sharpe_ratio": 0.612 },
+  "sma_metrics": {
+    "total_return": 13.4,
+    "cagr": 4.28,
+    "sharpe_ratio": 0.541,
+    "sortino_ratio": 0.782,
+    "max_drawdown": -16.8,
+    "calmar_ratio": 0.255,
+    "num_trades": 12,
+    "win_rate": 58.3,
+    "avg_trade_pct": 1.12,
+    "alpha": -1.55,
+    "beta": 0.821
+  },
   "equity_curve": [
-    {"date": "2023-06-05", "value": 10000.0, "benchmark": 10000.0},
-    {"date": "2023-06-06", "value": 10021.3, "benchmark": 10018.7}
+    {"date": "2023-06-05", "value": 10000.0, "benchmark": 10000.0, "sma_crossover": 10000.0},
+    {"date": "2023-06-06", "value": 10021.3, "benchmark": 10018.7, "sma_crossover": 10018.7}
   ],
   "trades": [
     {"date_open": "2023-06-12", "date_close": "2023-06-28",
@@ -1135,6 +1176,10 @@ Los pesos se normalizan automáticamente a suma = 1. Se requieren mínimo 2 y m�
     "min_variance_weights": {"AAPL": 0.276, "MSFT": 0.495, "GOOGL": 0.219, "AMZN": 0.01},
     "min_variance_return": 19.2,
     "min_variance_volatility": 21.1,
+    "hrp_weights": {"AAPL": 0.285, "MSFT": 0.481, "GOOGL": 0.234},
+    "hrp_return": 17.1,
+    "hrp_volatility": 22.0,
+    "hrp_sharpe": 0.570,
     "efficient_frontier": [
       {"expected_return": 19.2, "volatility": 21.1, "sharpe": 0.69, "weights": {...}},
       {"expected_return": 38.7, "volatility": 25.5, "sharpe": 1.34, "weights": {...}}
@@ -1376,7 +1421,7 @@ test_results/graficos/
 | Recall en detección | > 65% | 66.2% Recall | ✅ |
 | Análisis sentimiento NLP | Ensemble 4 modelos | FinBERT+VADER+Lexicón+TextBlob | ✅ |
 | Optimización de portafolio | Markowitz | Máx Sharpe + Mín Varianza + Frontera eficiente | ✅ |
-| Backtesting walk-forward | Walk-forward ML | Backtrader + MLSignalStrategy + CAGR/Sharpe/Sortino/Calmar | ✅ |
+| Backtesting walk-forward | Walk-forward ML | Backtrader + MLSignalStrategy + 2 benchmarks (B&H + SMA Crossover 20/50) | ✅ |
 | Tiempo respuesta | < 5s | 4.65s promedio (config. final) | ✅ |
 | 10+ usuarios concurrentes | ≥ 10 | 10 usuarios @ 100% (25 en config. inicial) | ✅ |
 | Dashboard funcional | Implementado | Streamlit (4 pestañas) | ✅ |
@@ -1670,11 +1715,10 @@ Si encuentras un problema no listado aquí:
 
 1. **Escalabilidad**: Migrar a PostgreSQL, múltiples workers Uvicorn y caché Redis para datos históricos y resultados del ModelAgent (objetivo: 50+ usuarios concurrentes)
 2. **Mejora del modelo predictivo**: Incorporar features macroeconómicos (VIX, tasa de interés, curva de rendimientos) y modelos de mayor capacidad (Temporal Fusion Transformer)
-3. **Rebalanceo automático con costos**: Detectar desviación del óptimo Markowitz e incorporar estimación de costos de transacción y restricciones de liquidez (Black & Litterman, 1992)
+3. **Rebalanceo automático con costos**: Detectar desviación del óptimo Markowitz/HRP e incorporar estimación de costos de transacción y restricciones de liquidez (Black & Litterman, 1992)
 4. **Datos alternativos**: Google Trends, sentimiento de redes sociales (Twitter/Reddit/X), datos macroeconómicos (FRED API) y cobertura de mercados latinoamericanos
-5. **Explicabilidad avanzada**: SHAP values para descomponer la contribución de los 52 features en cada predicción del ensemble
-6. **Alertas en tiempo real**: SMTP para alertas financieras críticas (actualmente solo para recuperación de contraseña), integración con Telegram/SMS
-7. **Despliegue en producción**: Containerización con Docker, pipeline CI/CD, despliegue en AWS/GCP/Azure con escalado horizontal
+5. **Alertas en tiempo real**: SMTP para alertas financieras críticas (actualmente solo para recuperación de contraseña), integración con Telegram/SMS
+6. **Despliegue en producción**: Containerización con Docker, pipeline CI/CD, despliegue en AWS/GCP/Azure con escalado horizontal
 
 
 
