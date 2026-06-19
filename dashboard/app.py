@@ -735,6 +735,57 @@ def render_prediction_card(prediccion: Dict, precio_actual: float = 0):
             )
             st.progress(min(f1 / 100, 1.0))
 
+        # ── SHAP Values ───────────────────────────────────────────────────
+        shap_vals = prediccion.get('shap_values', {})
+        mda_vals  = prediccion.get('mda_scores', {})
+        if shap_vals or mda_vals:
+            st.markdown("---")
+            st.markdown("**¿Qué variables impulsan esta predicción? (Explicabilidad)**")
+            st.caption(
+                "SHAP (Lundberg & Lee, 2017): contribución promedio de cada variable a "
+                "la probabilidad de subida. MDI (López de Prado, 2018): importancia basada "
+                "en reducción de impureza. Ambas metodologías sobre el mismo Random Forest auxiliar."
+            )
+            imp_col1, imp_col2 = st.columns(2)
+            if shap_vals:
+                with imp_col1:
+                    top_shap = dict(sorted(shap_vals.items(), key=lambda x: x[1], reverse=True)[:10])
+                    fig_shap = go.Figure(go.Bar(
+                        x=list(top_shap.values()),
+                        y=list(top_shap.keys()),
+                        orientation="h",
+                        marker_color="#6366f1",
+                        text=[f"{v:.4f}" for v in top_shap.values()],
+                        textposition="outside",
+                    ))
+                    fig_shap.update_layout(
+                        title="SHAP — Top 10 features", height=320,
+                        margin=dict(l=0, r=40, t=35, b=0),
+                        xaxis_title="mean |SHAP value|",
+                        yaxis=dict(autorange="reversed"),
+                        showlegend=False,
+                    )
+                    st.plotly_chart(fig_shap, use_container_width=True)
+            if mda_vals:
+                with imp_col2:
+                    top_mda = dict(sorted(mda_vals.items(), key=lambda x: x[1], reverse=True)[:10])
+                    fig_mda = go.Figure(go.Bar(
+                        x=list(top_mda.values()),
+                        y=list(top_mda.keys()),
+                        orientation="h",
+                        marker_color="#10b981",
+                        text=[f"{v:.4f}" for v in top_mda.values()],
+                        textposition="outside",
+                    ))
+                    fig_mda.update_layout(
+                        title="MDI — Top 10 features", height=320,
+                        margin=dict(l=0, r=40, t=35, b=0),
+                        xaxis_title="Mean Decrease Impurity",
+                        yaxis=dict(autorange="reversed"),
+                        showlegend=False,
+                    )
+                    st.plotly_chart(fig_mda, use_container_width=True)
+
 
 def render_sentiment_card(sentimiento: Dict):
     """Renderiza tarjeta de sentimiento."""
@@ -1587,7 +1638,8 @@ def render_portfolio_tab():
     if not opt.get("disponible", False):
         st.warning("Optimización no disponible (scipy no instalado o datos insuficientes).")
     else:
-        col_ms, col_mv = st.columns(2)
+        hrp_w = opt.get("hrp_weights", {})
+        col_ms, col_mv, col_hrp = st.columns(3)
 
         with col_ms:
             st.markdown("**Portafolio de Máximo Sharpe**")
@@ -1632,6 +1684,32 @@ def render_portfolio_tab():
             )
             st.plotly_chart(fig_mv, use_container_width=True)
 
+        with col_hrp:
+            st.markdown("**HRP — Hierarchical Risk Parity**")
+            hrp_sharpe = opt.get("hrp_sharpe", 0.0)
+            hrp_ret    = opt.get("hrp_return", 0.0)
+            hrp_vol    = opt.get("hrp_volatility", 0.0)
+            if hrp_w:
+                st.metric("Sharpe", f"{hrp_sharpe:.2f}")
+                st.metric("Retorno Esperado", f"{hrp_ret:.1f}%")
+                st.metric("Volatilidad", f"{hrp_vol:.1f}%")
+                fig_hrp = go.Figure(go.Bar(
+                    x=list(hrp_w.keys()),
+                    y=[v * 100 for v in hrp_w.values()],
+                    marker_color="#f59e0b",
+                    text=[f"{v*100:.1f}%" for v in hrp_w.values()],
+                    textposition="outside",
+                ))
+                fig_hrp.update_layout(
+                    title="Pesos HRP (sin optimización paramétrica)", height=250,
+                    margin=dict(l=0, r=0, t=35, b=0),
+                    yaxis_title="Peso (%)", showlegend=False,
+                )
+                st.plotly_chart(fig_hrp, use_container_width=True)
+                st.caption("HRP usa clustering jerárquico — no requiere invertir la matriz de covarianza (López de Prado, 2016).")
+            else:
+                st.info("HRP no disponible (datos insuficientes).")
+
         # Frontera eficiente
         frontier = opt.get("efficient_frontier", [])
         if frontier:
@@ -1667,6 +1745,12 @@ def render_portfolio_tab():
                 mode="markers", marker=dict(color="green", size=12, symbol="square"),
                 name="Mín. Varianza",
             ))
+            if hrp_w and opt.get("hrp_volatility", 0) > 0:
+                fig_fe.add_trace(go.Scatter(
+                    x=[opt["hrp_volatility"]], y=[opt["hrp_return"]],
+                    mode="markers", marker=dict(color="#f59e0b", size=12, symbol="triangle-up"),
+                    name="HRP",
+                ))
             fig_fe.update_layout(
                 height=380,
                 xaxis_title="Volatilidad anualizada (%)",
@@ -1680,19 +1764,21 @@ def render_portfolio_tab():
                 "Portafolios sobre la curva dominan a los que están debajo."
             )
 
-        # Comparación de pesos: actual vs óptimo
-        st.markdown("**Comparación: Pesos Actuales vs Óptimos (Max Sharpe)**")
+        # Comparación de pesos: actual vs óptimos
+        st.markdown("**Comparación: Pesos Actuales vs Estrategias de Optimización**")
         comp_rows = []
         for t in tickers_ok:
-            w_act = pf["weights"].get(t, 0)
-            w_opt = opt["max_sharpe_weights"].get(t, 0)
-            diff = w_opt - w_act
+            w_act  = pf["weights"].get(t, 0)
+            w_opt  = opt["max_sharpe_weights"].get(t, 0)
+            w_hrp_ = hrp_w.get(t, 0)
+            diff   = w_opt - w_act
             accion = "Aumentar" if diff > 0.03 else ("Reducir" if diff < -0.03 else "Mantener")
             comp_rows.append({
                 "Ticker": t,
                 "Actual %": f"{w_act*100:.1f}%",
-                "Óptimo Max Sharpe %": f"{w_opt*100:.1f}%",
-                "Diferencia pp": f"{diff*100:+.1f}",
+                "Max Sharpe %": f"{w_opt*100:.1f}%",
+                "HRP %": f"{w_hrp_*100:.1f}%" if w_hrp_ else "-",
+                "Δ vs Max Sharpe": f"{diff*100:+.1f}pp",
                 "Acción Sugerida": accion,
             })
         st.table(pd.DataFrame(comp_rows))
@@ -1934,6 +2020,7 @@ def render_backtest_tab():
     bt_data = st.session_state.last_backtest
     m = bt_data["metrics"]
     bm = bt_data["benchmark_metrics"]
+    sma_m = bt_data.get("sma_metrics", {})
 
     st.caption(
         f"Período: {bt_data['start_date']} → {bt_data['end_date']} | "
@@ -1942,7 +2029,7 @@ def render_backtest_tab():
     )
 
     # ── Métricas comparativas ─────────────────────────────────────────────
-    st.markdown("#### Métricas: Estrategia ML vs Buy & Hold")
+    st.markdown("#### Métricas: Estrategia ML vs Buy & Hold vs SMA Crossover")
     cols = st.columns(6)
     metrics_def = [
         ("CAGR", "cagr", "%"),
@@ -1970,6 +2057,24 @@ def render_backtest_tab():
                  help="% de operaciones que terminaron en ganancia")
     col_c.metric("Trade promedio", f"{m['avg_trade_pct']:+.1f}%")
 
+    if sma_m:
+        st.markdown("##### ML vs SMA Crossover (20/50 días)")
+        sma_cols = st.columns(4)
+        sma_compare = [
+            ("CAGR", "cagr", "%"),
+            ("Sharpe Ratio", "sharpe_ratio", ""),
+            ("Retorno Total", "total_return", "%"),
+            ("Max Drawdown", "max_drawdown", "%"),
+        ]
+        for col, (label, key, unit) in zip(sma_cols, sma_compare):
+            ml_val = m[key]
+            sma_val = sma_m.get(key, ml_val)
+            delta = ml_val - sma_val
+            if key == "max_drawdown":
+                col.metric(label, f"{ml_val:.1f}{unit}", delta=f"{delta:+.1f}{unit}", delta_color="inverse")
+            else:
+                col.metric(label, f"{ml_val:.1f}{unit}", delta=f"{delta:+.1f}{unit}")
+
     # ── Interpretación en lenguaje simple ─────────────────────────────────
     st.markdown("#### ¿Qué significan estos resultados?")
     interpretaciones = []
@@ -1993,16 +2098,25 @@ def render_backtest_tab():
     else:
         interpretaciones.append(f"⚠️ **Calmar {calmar:.2f}**: La caída máxima fue grande en relación al retorno anual — el portafolio tuvo períodos de pérdida prolongados.")
 
-    # Alpha
+    # Alpha vs B&H y vs SMA
     alpha = m.get('alpha', 0)
+    sma_cagr = sma_m.get('cagr', m.get('cagr', 0)) if sma_m else m.get('cagr', 0)
+    alpha_vs_sma = m.get('cagr', 0) - sma_cagr
     if alpha > 5:
-        interpretaciones.append(f"✅ **Alpha {alpha:+.1f}pp**: La estrategia ML superó al Buy & Hold por {alpha:.1f} puntos porcentuales — añade valor real.")
+        interpretaciones.append(f"✅ **Alpha {alpha:+.1f}pp vs B&H**: La estrategia ML superó al Buy & Hold por {alpha:.1f} puntos porcentuales — añade valor real.")
     elif alpha > 0:
-        interpretaciones.append(f"👍 **Alpha {alpha:+.1f}pp**: La estrategia ML superó ligeramente al Buy & Hold.")
+        interpretaciones.append(f"👍 **Alpha {alpha:+.1f}pp vs B&H**: La estrategia ML superó ligeramente al Buy & Hold.")
     elif alpha > -5:
-        interpretaciones.append(f"⚠️ **Alpha {alpha:+.1f}pp**: La estrategia ML rindió levemente por debajo del Buy & Hold. Considerar costos de transacción.")
+        interpretaciones.append(f"⚠️ **Alpha {alpha:+.1f}pp vs B&H**: La estrategia ML rindió levemente por debajo del Buy & Hold. Considerar costos de transacción.")
     else:
-        interpretaciones.append(f"❌ **Alpha {alpha:+.1f}pp**: Buy & Hold superó claramente a la estrategia ML en este período.")
+        interpretaciones.append(f"❌ **Alpha {alpha:+.1f}pp vs B&H**: Buy & Hold superó claramente a la estrategia ML en este período.")
+    if sma_m:
+        if alpha_vs_sma > 2:
+            interpretaciones.append(f"✅ **+{alpha_vs_sma:.1f}pp vs SMA Crossover**: El modelo ML supera a la estrategia técnica básica — el aprendizaje automático agrega valor real más allá del análisis técnico tradicional.")
+        elif alpha_vs_sma > -2:
+            interpretaciones.append(f"👍 **{alpha_vs_sma:+.1f}pp vs SMA Crossover**: Rendimiento similar a la estrategia técnica básica. El ML es competitivo con el análisis técnico simple.")
+        else:
+            interpretaciones.append(f"⚠️ **{alpha_vs_sma:+.1f}pp vs SMA Crossover**: El SMA Crossover superó al modelo ML. Revisar features del ensemble o condiciones de mercado del período.")
 
     # Max Drawdown
     mdd = m.get('max_drawdown', 0)
@@ -2044,11 +2158,16 @@ def render_backtest_tab():
             "avg_trade_pct": "Trade Promedio (%)",
         }
         for key in all_keys:
-            rows.append({"Métrica": labels_map[key], "Estrategia ML": m[key], "Buy & Hold": bm.get(key, "-")})
+            rows.append({
+                "Métrica": labels_map[key],
+                "Estrategia ML": m[key],
+                "Buy & Hold": bm.get(key, "-"),
+                "SMA Crossover (20/50)": sma_m.get(key, "-") if sma_m else "-",
+            })
         st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
 
     # ── Curva de equity ───────────────────────────────────────────────────
-    st.markdown("#### Curva de Equity: Estrategia ML vs Buy & Hold")
+    st.markdown("#### Curva de Equity: Estrategia ML vs Buy & Hold vs SMA Crossover")
     eq = bt_data.get("equity_curve", [])
     if eq:
         eq_df = pd.DataFrame(eq)
@@ -2065,6 +2184,12 @@ def render_backtest_tab():
             name="Buy & Hold",
             line=dict(color="#FF9800", width=2, dash="dash"),
         ))
+        if "sma_crossover" in eq_df.columns:
+            fig_eq.add_trace(go.Scatter(
+                x=eq_df["date"], y=eq_df["sma_crossover"],
+                name="SMA Crossover (20/50)",
+                line=dict(color="#4CAF50", width=2, dash="dot"),
+            ))
         fig_eq.update_layout(
             xaxis_title="Fecha",
             yaxis_title="Valor del portafolio (USD)",

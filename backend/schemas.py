@@ -335,6 +335,10 @@ class PortfolioOptimizationSchema(BaseModel):
     min_variance_volatility: float
     efficient_frontier: List[EfficientFrontierPointSchema]
     disponible: bool
+    hrp_weights: Dict[str, float] = {}
+    hrp_return: float = 0.0
+    hrp_volatility: float = 0.0
+    hrp_sharpe: float = 0.0
 
 
 class PortfolioAssetSchema(BaseModel):

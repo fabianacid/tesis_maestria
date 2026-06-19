@@ -5,6 +5,10 @@ Estrategia: cada STEP días (trimestral) reentrena el ensemble con la ventana
 de TRAIN_WINDOW días anteriores y asigna la señal resultante (compra/venta/hold)
 a los STEP días siguientes. Simula un gestor que revisa su modelo trimestralmente.
 
+Benchmarks comparativos:
+- Buy & Hold: compra al inicio y mantiene.
+- SMA Crossover (20/50): compra en golden cross, vende en death cross.
+
 Comisión: 0.1% por operación. Tasa libre de riesgo: 4.5% anual.
 """
 import logging
@@ -55,6 +59,8 @@ class BacktestResult:
     signals_generated: int
     buy_signals: int
     sell_signals: int
+    sma_final: float = 0.0
+    sma_metrics: Optional[BacktestMetrics] = None
 
 
 # ─────────────────────────────────────────────
@@ -96,6 +102,59 @@ class MLSignalStrategy(bt.Strategy):
             self.trade_log.append({
                 "date_open": self._entry_date,
                 "date_close": date_str,
+                "entry_price": round(self._entry_price, 2),
+                "exit_price": round(exit_price, 2),
+                "pnl_pct": round(pnl_pct, 2),
+                "result": "ganancia" if pnl_pct > 0 else "pérdida",
+            })
+            self.order = self.sell(size=self.position.size)
+
+    def notify_order(self, order):
+        if order.status in [order.Completed, order.Canceled, order.Margin]:
+            self.order = None
+
+
+class SMACrossoverStrategy(bt.Strategy):
+    """SMA Crossover 20/50: compra en golden cross, vende en death cross."""
+
+    params = (
+        ("short_period", 20),
+        ("long_period", 50),
+        ("stake_pct", 0.95),
+    )
+
+    def __init__(self):
+        self.sma_short = bt.indicators.SimpleMovingAverage(
+            self.data.close, period=self.params.short_period
+        )
+        self.sma_long = bt.indicators.SimpleMovingAverage(
+            self.data.close, period=self.params.long_period
+        )
+        self.crossover = bt.indicators.CrossOver(self.sma_short, self.sma_long)
+        self.order = None
+        self.trade_log = []
+        self._entry_price = None
+        self._entry_date = None
+
+    def next(self):
+        if self.order:
+            return
+
+        if self.crossover > 0 and not self.position:
+            cash = self.broker.getcash()
+            price = self.data.close[0]
+            size = int(cash * self.params.stake_pct / price)
+            if size > 0:
+                self.order = self.buy(size=size)
+                self._entry_price = price
+                self._entry_date = str(self.datas[0].datetime.date(0))
+
+        elif self.crossover < 0 and self.position:
+            exit_price = self.data.close[0]
+            pnl_pct = (exit_price / self._entry_price - 1) * 100 if self._entry_price else 0
+            self.trade_log.append({
+                "date_open": self._entry_date,
+                "date_close": str(self.datas[0].datetime.date(0)),
                 "entry_price": round(self._entry_price, 2),
                 "exit_price": round(exit_price, 2),
                 "pnl_pct": round(pnl_pct, 2),
@@ -201,6 +260,36 @@ class BacktestAgent:
             beta=round(beta, 3),
         )
 
+    def _run_sma_backtest(
+        self, bt_data: pd.DataFrame, initial_cash: float
+    ) -> tuple:
+        """Ejecuta backtest con estrategia SMA Crossover (20/50) y devuelve (equity_series, trades, final_value)."""
+        feed = bt.feeds.PandasData(
+            dataname=bt_data,
+            datetime=None,
+            open="Open", high="High", low="Low", close="Close",
+            volume="Volume", openinterest=-1,
+        )
+        cerebro = bt.Cerebro(stdstats=False)
+        cerebro.adddata(feed)
+        cerebro.addstrategy(SMACrossoverStrategy, stake_pct=0.95)
+        cerebro.broker.setcash(initial_cash)
+        cerebro.broker.setcommission(commission=self.COMMISSION)
+        cerebro.addanalyzer(btanalyzers.TimeReturn, _name="time_return", timeframe=bt.TimeFrame.Days)
+
+        results = cerebro.run()
+        strat = results[0]
+        final_value = cerebro.broker.getvalue()
+
+        time_returns = strat.analyzers.time_return.get_analysis()
+        eq_dates = sorted(time_returns.keys())
+        eq_values = [initial_cash]
+        for d in eq_dates:
+            eq_values.append(eq_values[-1] * (1 + time_returns[d]))
+        eq_series = pd.Series(eq_values[1:], index=pd.DatetimeIndex(eq_dates))
+
+        return eq_series, strat.trade_log, final_value
+
     def run_backtest(self, ticker: str, years: int = 3, initial_cash: float = 10_000.0) -> BacktestResult:
         end_date = datetime.today()
         start_data = end_date - timedelta(days=365 * (years + 2) + 30)
@@ -273,11 +362,22 @@ class BacktestAgent:
         eq_aligned = eq_series.reindex(common_idx).ffill()
         bench_aligned = bench_series.reindex(common_idx).ffill()
 
+        # ── SMA Crossover benchmark ───────────────────────────────────────
+        try:
+            sma_eq_series, sma_trade_log, sma_final_value = self._run_sma_backtest(bt_data, initial_cash)
+            sma_aligned = sma_eq_series.reindex(common_idx).ffill().fillna(initial_cash)
+        except Exception as e:
+            logger.warning(f"[BacktestAgent] SMA benchmark falló, usando B&H como fallback: {e}")
+            sma_aligned = bench_aligned.copy()
+            sma_trade_log = []
+            sma_final_value = float(bench_aligned.iloc[-1])
+
         equity_curve = [
             {
                 "date": str(d.date()),
                 "value": round(float(eq_aligned.get(d, initial_cash)), 2),
                 "benchmark": round(float(bench_aligned.get(d, initial_cash)), 2),
+                "sma_crossover": round(float(sma_aligned.get(d, initial_cash)), 2),
             }
             for d in common_idx
         ]
@@ -286,11 +386,12 @@ class BacktestAgent:
         metrics = self._compute_metrics(eq_aligned, bench_aligned, trade_log)
         bench_trade = [{"pnl_pct": float((bench_aligned.iloc[-1] / initial_cash - 1) * 100)}]
         bench_metrics = self._compute_metrics(bench_aligned, bench_aligned, bench_trade)
+        sma_metrics = self._compute_metrics(sma_aligned, bench_aligned, sma_trade_log)
 
         logger.info(
-            f"[BacktestAgent] {ticker}: CAGR={metrics.cagr:.1f}% "
-            f"Sharpe={metrics.sharpe_ratio:.2f} MaxDD={metrics.max_drawdown:.1f}% "
-            f"Trades={metrics.num_trades} WinRate={metrics.win_rate:.0f}%"
+            f"[BacktestAgent] {ticker}: ML CAGR={metrics.cagr:.1f}% Sharpe={metrics.sharpe_ratio:.2f} | "
+            f"SMA CAGR={sma_metrics.cagr:.1f}% Sharpe={sma_metrics.sharpe_ratio:.2f} | "
+            f"B&H CAGR={bench_metrics.cagr:.1f}%"
         )
 
         return BacktestResult(
@@ -307,4 +408,6 @@ class BacktestAgent:
             signals_generated=len(bt_signals),
             buy_signals=buy_count,
             sell_signals=sell_count,
+            sma_final=round(sma_final_value, 2),
+            sma_metrics=sma_metrics,
         )

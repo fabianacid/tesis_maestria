@@ -34,6 +34,8 @@ except ImportError:
 
 try:
     from scipy.optimize import minimize
+    from scipy.cluster.hierarchy import linkage, dendrogram, leaves_list
+    from scipy.spatial.distance import squareform
     SCIPY_AVAILABLE = True
 except ImportError:
     SCIPY_AVAILABLE = False
@@ -89,6 +91,11 @@ class PortfolioOptimization:
     min_variance_volatility: float
     efficient_frontier: List[EfficientFrontierPoint]
     disponible: bool = True
+    # Hierarchical Risk Parity (López de Prado, 2016)
+    hrp_weights: Dict[str, float] = field(default_factory=dict)
+    hrp_return: float = 0.0
+    hrp_volatility: float = 0.0
+    hrp_sharpe: float = 0.0
 
 
 @dataclass
@@ -467,6 +474,19 @@ class PortfolioAgent:
             def _wdict(w):
                 return {t: round(float(w[i]), 4) for i, t in enumerate(tickers)}
 
+            # ── Hierarchical Risk Parity ──────────────────────────────────────
+            hrp_w_dict: Dict[str, float] = {}
+            hrp_ret = hrp_vol = hrp_sharpe_val = 0.0
+            if returns_mat is not None and returns_mat.shape[1] == n:
+                try:
+                    hrp_w_dict = self._hrp_weights(returns_mat, tickers)
+                    w_hrp = np.array([hrp_w_dict[t] for t in tickers])
+                    hrp_ret  = round(port_ret(w_hrp), 2)
+                    hrp_vol  = round(port_vol(w_hrp), 2)
+                    hrp_sharpe_val = round((hrp_ret - rf) / hrp_vol, 3) if hrp_vol > 0 else 0.0
+                except Exception as e:
+                    logger.warning(f"HRP falló: {e}")
+
             return PortfolioOptimization(
                 max_sharpe_weights=_wdict(w_sharpe),
                 max_sharpe_return=round(port_ret(w_sharpe), 2),
@@ -477,6 +497,10 @@ class PortfolioAgent:
                 min_variance_volatility=round(port_vol(w_minvar), 2),
                 efficient_frontier=frontier,
                 disponible=True,
+                hrp_weights=hrp_w_dict,
+                hrp_return=hrp_ret,
+                hrp_volatility=hrp_vol,
+                hrp_sharpe=hrp_sharpe_val,
             )
 
         except Exception as exc:
@@ -491,6 +515,64 @@ class PortfolioAgent:
     # ------------------------------------------------------------------
     # Recomendación y alertas
     # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # Hierarchical Risk Parity
+    # ------------------------------------------------------------------
+
+    def _hrp_weights(
+        self, returns_mat: "np.ndarray", tickers: List[str]
+    ) -> Dict[str, float]:
+        """
+        Hierarchical Risk Parity (López de Prado, 2016).
+
+        Pasos:
+        1. Clustering jerárquico sobre la matriz de correlación (distancia = √((1-ρ)/2)).
+        2. Quasi-diagonalización: reordenar activos según el dendrograma.
+        3. Bisección recursiva: asignar pesos inversamente proporcionales a la
+           varianza de cada sub-cluster — sin invertir la matriz de covarianza.
+
+        Ventaja frente a Markowitz: estable ante pequeños cambios en correlaciones
+        y no sufre el problema de "error maximization" de la optimización MV.
+        """
+        corr = np.corrcoef(returns_mat.T)
+        cov  = np.cov(returns_mat.T) * TRADING_DAYS * (100 ** 2)
+        n = len(tickers)
+
+        # Distancia de correlación y clustering
+        dist = np.sqrt(np.maximum((1 - corr) / 2, 0))
+        np.fill_diagonal(dist, 0.0)
+        condensed = squareform(dist, checks=False)
+        link = linkage(condensed, method="single")
+
+        # Orden de hojas del dendrograma (quasi-diagonal)
+        order = leaves_list(link)
+
+        # Bisección recursiva
+        weights = np.ones(n)
+
+        def _cluster_var(idxs):
+            sub_cov = cov[np.ix_(idxs, idxs)]
+            inv_diag = 1.0 / np.maximum(np.diag(sub_cov), 1e-8)
+            w = inv_diag / inv_diag.sum()
+            return float(w @ sub_cov @ w)
+
+        def _bisect(cluster):
+            if len(cluster) == 1:
+                return
+            half = len(cluster) // 2
+            left, right = cluster[:half], cluster[half:]
+            var_l = _cluster_var(left)
+            var_r = _cluster_var(right)
+            alpha = 1 - var_l / (var_l + var_r + 1e-8)
+            weights[left]  *= alpha
+            weights[right] *= (1 - alpha)
+            _bisect(left)
+            _bisect(right)
+
+        _bisect(list(order))
+        weights /= weights.sum()
+        return {tickers[i]: round(float(weights[i]), 4) for i in range(n)}
 
     def _generar_recomendacion(
         self,

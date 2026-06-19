@@ -176,6 +176,10 @@ async def analyze_portfolio(
         min_variance_volatility=result.optimizacion.min_variance_volatility,
         efficient_frontier=frontier_schema,
         disponible=result.optimizacion.disponible,
+        hrp_weights=result.optimizacion.hrp_weights,
+        hrp_return=result.optimizacion.hrp_return,
+        hrp_volatility=result.optimizacion.hrp_volatility,
+        hrp_sharpe=result.optimizacion.hrp_sharpe,
     )
 
     logger.info(f"Análisis de portafolio completado: {tickers}")

@@ -33,6 +33,7 @@ from sklearn.preprocessing import StandardScaler, RobustScaler
 from sklearn.metrics import accuracy_score, precision_score, recall_score, f1_score, roc_auc_score
 from sklearn.model_selection import TimeSeriesSplit
 from sklearn.calibration import CalibratedClassifierCV
+from sklearn.inspection import permutation_importance
 
 # Opcional: Modelos avanzados
 try:
@@ -53,6 +54,12 @@ try:
     TORCH_AVAILABLE = True
 except (ImportError, OSError):
     TORCH_AVAILABLE = False
+
+try:
+    import shap
+    SHAP_AVAILABLE = True
+except ImportError:
+    SHAP_AVAILABLE = False
 
 warnings.filterwarnings('ignore')
 logger = logging.getLogger(__name__)
@@ -108,6 +115,8 @@ class PredictionResult:
     predicciones_modelos: Dict[str, float] = field(default_factory=dict)
     pesos_ensemble: Dict[str, float] = field(default_factory=dict)
     features_importance: Dict[str, float] = field(default_factory=dict)
+    mda_scores: Dict[str, float] = field(default_factory=dict)
+    shap_values: Dict[str, float] = field(default_factory=dict)
     tendencia: str = "lateral"
     confianza: float = 0.5
     prob_subida: float = 0.5
@@ -307,6 +316,22 @@ class ModelAgent:
             # Escalar features
             X_scaled = self.scaler.fit_transform(X)
 
+            # ── Selección de features MDI + MDA + SHAP ────────────────────────
+            mdi_scores, mda_scores_raw, shap_scores = self._compute_feature_importance(
+                X_scaled, y, feature_names
+            )
+            if mdi_scores:
+                X_train, selected_names = self._select_features(
+                    X_scaled, feature_names, mdi_scores, mda_scores_raw
+                )
+                logger.info(
+                    f"[{ticker}] Feature selection: {len(feature_names)} → "
+                    f"{len(selected_names)} features (MDI+MDA)"
+                )
+            else:
+                X_train, selected_names = X_scaled, feature_names
+                mda_scores_raw = {}
+
             # Entrenar y evaluar modelos
             predicciones = {}
             metricas_modelos = {}
@@ -315,7 +340,7 @@ class ModelAgent:
             for model_type in self.modelos_disponibles:
                 try:
                     pred, metrics, imp = self._entrenar_modelo(
-                        X_scaled, y, model_type, feature_names
+                        X_train, y, model_type, selected_names
                     )
                     if pred is not None:
                         predicciones[model_type.value] = pred
@@ -374,8 +399,26 @@ class ModelAgent:
             # Calcular confianza basada en accuracy y consenso
             confianza = (mejor_metrics.accuracy + abs(prob_subida - 0.5) * 2) / 2
 
-            # Agregar feature importance promediada
-            feature_importance_avg = self._promediar_importancias(importancias)
+            # MDI top-10 como feature importance principal
+            if mdi_scores:
+                top_mdi = dict(
+                    sorted(mdi_scores.items(), key=lambda x: x[1], reverse=True)[:10]
+                )
+            else:
+                top_mdi = self._promediar_importancias(importancias)
+
+            # MDA top-10 (solo features con contribución positiva)
+            top_mda = dict(
+                sorted(
+                    {k: v for k, v in mda_scores_raw.items() if v > 0}.items(),
+                    key=lambda x: x[1], reverse=True
+                )[:10]
+            ) if mda_scores_raw else {}
+
+            # SHAP top-10 (mean |SHAP value| — importancia explicativa por predicción)
+            top_shap = dict(
+                sorted(shap_scores.items(), key=lambda x: x[1], reverse=True)[:10]
+            ) if shap_scores else {}
 
             # Crear resultado
             resultado = PredictionResult(
@@ -391,14 +434,18 @@ class ModelAgent:
                 parametros={
                     "ventana": self.ventana_entrenamiento,
                     "n_features": len(feature_names),
+                    "n_features_selected": len(selected_names),
                     "n_modelos": len(predicciones),
-                    "mejor_modelo": mejor_modelo[0]
+                    "mejor_modelo": mejor_modelo[0],
+                    "feature_selection": "MDI+MDA" if mdi_scores else "none",
                 },
                 intervalo_confianza=(round(intervalo[0], 2), round(intervalo[1], 2)),
                 metricas_completas=mejor_metrics,
                 predicciones_modelos={k: round(v, 2) for k, v in predicciones.items()},
                 pesos_ensemble={k: round(v, 4) for k, v in pesos.items()},
-                features_importance=feature_importance_avg,
+                features_importance=top_mdi,
+                mda_scores=top_mda,
+                shap_values=top_shap,
                 tendencia=tendencia,
                 confianza=round(confianza, 3),
                 prob_subida=round(prob_subida, 4)
@@ -942,6 +989,103 @@ class ModelAgent:
         sorted_imp = sorted(avg_importance.items(), key=lambda x: x[1], reverse=True)
         return dict(sorted_imp[:10])
 
+    def _compute_feature_importance(
+        self,
+        X: np.ndarray,
+        y: np.ndarray,
+        feature_names: List[str],
+    ) -> Tuple[Dict[str, float], Dict[str, float], Dict[str, float]]:
+        """
+        Calcula MDI, MDA y SHAP values sobre un Random Forest auxiliar.
+
+        MDI: importancia intrínseca basada en reducción de Gini — rápida pero puede
+             sobreestimar features continuas de alta cardinalidad.
+        MDA: caída en F1-score al permutar cada feature en validación temporal.
+             Mide contribución marginal real (López de Prado, 2018, Cap. 8).
+        SHAP: valor de Shapley (Lundberg & Lee, 2017) — descompone cada predicción
+              individual en contribuciones por feature; es el estándar de explicabilidad
+              en ML financiero. Se usa TreeExplainer (exacto y rápido para árboles).
+        """
+        n = len(X)
+        n_val = max(int(n * 0.2), 10)
+        X_train_sel = X[:-(n_val + 1)]
+        y_train_sel = y[:-(n_val + 1)]
+        X_val_sel   = X[-(n_val + 1):-1]
+        y_val_sel   = y[-(n_val + 1):-1]
+
+        if len(X_train_sel) < 20 or len(np.unique(y_train_sel)) < 2:
+            return {}, {}, {}
+
+        rf = RandomForestClassifier(
+            n_estimators=100, max_depth=10, min_samples_split=5,
+            random_state=42, n_jobs=-1
+        )
+        rf.fit(X_train_sel, y_train_sel)
+
+        mdi = dict(zip(feature_names, rf.feature_importances_))
+
+        mda: Dict[str, float] = {}
+        try:
+            if len(X_val_sel) >= 10 and len(np.unique(y_val_sel)) == 2:
+                perm = permutation_importance(
+                    rf, X_val_sel, y_val_sel,
+                    n_repeats=10, random_state=42, n_jobs=-1,
+                    scoring='f1'
+                )
+                mda = dict(zip(feature_names, perm.importances_mean))
+        except Exception as e:
+            logger.debug(f"MDA skipped: {e}")
+
+        shap_mean_abs: Dict[str, float] = {}
+        if SHAP_AVAILABLE and len(X_val_sel) >= 5:
+            try:
+                explainer = shap.TreeExplainer(rf)
+                shap_vals = explainer.shap_values(X_val_sel, check_additivity=False)
+                # Para clasificación binaria shap_values es lista [clase0, clase1]
+                if isinstance(shap_vals, list) and len(shap_vals) == 2:
+                    shap_vals = shap_vals[1]
+                shap_mean_abs = dict(zip(feature_names, np.mean(np.abs(shap_vals), axis=0)))
+            except Exception as e:
+                logger.debug(f"SHAP skipped: {e}")
+
+        return mdi, mda, shap_mean_abs
+
+    def _select_features(
+        self,
+        X: np.ndarray,
+        feature_names: List[str],
+        mdi_scores: Dict[str, float],
+        mda_scores: Dict[str, float],
+    ) -> Tuple[np.ndarray, List[str]]:
+        """
+        Selecciona features combinando MDI y MDA.
+
+        Score combinado = 0.6 × MDI_normalizado + 0.4 × MDA_normalizado.
+        Se retienen las features cuyo score supera la mediana del conjunto.
+        Garantía mínima: siempre se seleccionan al menos 10 features para
+        preservar la estabilidad del ensemble.
+        """
+        n = len(feature_names)
+        mdi_vals = np.array([mdi_scores.get(f, 0.0) for f in feature_names])
+        mda_vals = np.array([max(mda_scores.get(f, 0.0), 0.0) for f in feature_names])
+
+        mdi_sum = mdi_vals.sum()
+        mda_sum = mda_vals.sum()
+        mdi_norm = mdi_vals / mdi_sum if mdi_sum > 0 else np.ones(n) / n
+        mda_norm = mda_vals / mda_sum if mda_sum > 0 else np.zeros(n)
+
+        combined = 0.6 * mdi_norm + 0.4 * mda_norm
+        threshold = np.median(combined)
+        selected_mask = combined >= threshold
+
+        if selected_mask.sum() < 10:
+            top_idx = np.argsort(combined)[::-1][:10]
+            selected_mask = np.zeros(n, dtype=bool)
+            selected_mask[top_idx] = True
+
+        selected_names = [f for f, s in zip(feature_names, selected_mask) if s]
+        return X[:, selected_mask], selected_names
+
     def _prediccion_fallback(
         self,
         precios: pd.DataFrame,
@@ -1062,6 +1206,8 @@ class ModelAgent:
             "predicciones_modelos": resultado.predicciones_modelos,
             "pesos_ensemble": resultado.pesos_ensemble,
             "features_importance": resultado.features_importance,
+            "mda_scores": resultado.mda_scores,
+            "shap_values": resultado.shap_values,
             "tendencia": resultado.tendencia,
             "confianza": resultado.confianza,
             "prob_subida": resultado.prob_subida,

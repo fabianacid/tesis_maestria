@@ -30,11 +30,13 @@ def _serialize(result: BacktestResult) -> dict:
         "initial_cash": result.initial_cash,
         "final_value": result.final_value,
         "benchmark_final": result.benchmark_final,
+        "sma_final": result.sma_final,
         "signals_generated": result.signals_generated,
         "buy_signals": result.buy_signals,
         "sell_signals": result.sell_signals,
         "metrics": m(result.metrics),
         "benchmark_metrics": m(result.benchmark_metrics),
+        "sma_metrics": m(result.sma_metrics) if result.sma_metrics else {},
         "trades": result.trades,
         "equity_curve": result.equity_curve,
     }
@@ -48,7 +50,7 @@ def _serialize(result: BacktestResult) -> dict:
         "Reentrena el ensemble de ML cada trimestre (63 días) con una ventana de "
         "504 días y simula las operaciones con Backtrader. "
         "Devuelve métricas (CAGR, Sharpe, Sortino, max drawdown, alpha, beta) "
-        "y la curva de equity vs benchmark buy & hold."
+        "para tres estrategias: ML walk-forward, Buy & Hold y SMA Crossover (20/50)."
     ),
 )
 async def run_backtest(
