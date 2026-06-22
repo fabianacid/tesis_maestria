@@ -82,19 +82,21 @@ test_results/capitulos_4_y_5.tex
 ~$*.xlsx
 ~$*.pptx
 
-# Archivos de runtime
+# Archivos de runtime y logs temporales
 backend.pid
 streamlit.log
 backend.log
 backend_err.log
 streamlit_err.log
+backend_err.txt
+backend_out.txt
+dashboard_err.txt
+dashboard_out.txt
 
-# Versiones intermedias de la tesis
-TI_Cid_Fabiana_V10.docx
-TI_Cid_Fabiana_V11.docx
-TI_Cid_Fabiana_V12.docx
-TI_Cid_Fabiana_V13.docx
-TI_Cid_Fabiana_V14.docx
+# Documentos Word / PowerPoint (usar Drive para documentos académicos)
+*.docx
+*.pptx
+*.xlsx
 
 # Archivos LaTeX
 *.tex

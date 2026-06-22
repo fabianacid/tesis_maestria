@@ -1,0 +1,357 @@
+{
+  "AAPL": {
+    "n_obs": 535,
+    "n_retrains": 9,
+    "accuracy": {
+      "ml": 0.4916,
+      "bh": 0.5888,
+      "sma": 0.5065
+    },
+    "dm_vs_bh_01": {
+      "T": 535,
+      "mean_loss_model": 0.50841,
+      "mean_loss_bench": 0.41121,
+      "mean_diff": -0.0972,
+      "dm_stat": -2.312,
+      "mdm_stat": -2.301,
+      "p_value_one": 0.9891,
+      "p_value_two": 0.0218,
+      "sig_90": false,
+      "sig_95": false,
+      "sig_99": false
+    },
+    "dm_vs_sma_01": {
+      "T": 535,
+      "mean_loss_model": 0.50841,
+      "mean_loss_bench": 0.49346,
+      "mean_diff": -0.01495,
+      "dm_stat": -0.372,
+      "mdm_stat": -0.37,
+      "p_value_one": 0.6443,
+      "p_value_two": 0.7114,
+      "sig_90": false,
+      "sig_95": false,
+      "sig_99": false
+    },
+    "dm_vs_bh_brier": {
+      "T": 535,
+      "mean_loss_model": 0.26384,
+      "mean_loss_bench": 0.41121,
+      "mean_diff": 0.14738,
+      "dm_stat": 4.64,
+      "mdm_stat": 4.618,
+      "p_value_one": 0.0,
+      "p_value_two": 0.0,
+      "sig_90": true,
+      "sig_95": true,
+      "sig_99": true
+    },
+    "dm_vs_sma_brier": {
+      "T": 535,
+      "mean_loss_model": 0.26384,
+      "mean_loss_bench": 0.49346,
+      "mean_diff": 0.22962,
+      "dm_stat": 7.343,
+      "mdm_stat": 7.309,
+      "p_value_one": 0.0,
+      "p_value_two": 0.0,
+      "sig_90": true,
+      "sig_95": true,
+      "sig_99": true
+    },
+    "sign_test": {
+      "T": 535,
+      "correct": 263,
+      "accuracy": 0.4916,
+      "p_value": 0.6672,
+      "sig_90": false,
+      "sig_95": false,
+      "sig_99": false
+    },
+    "elapsed_seconds": 53.6
+  },
+  "MSFT": {
+    "n_obs": 535,
+    "n_retrains": 9,
+    "accuracy": {
+      "ml": 0.5215,
+      "bh": 0.5308,
+      "sma": 0.5065
+    },
+    "dm_vs_bh_01": {
+      "T": 535,
+      "mean_loss_model": 0.4785,
+      "mean_loss_bench": 0.46916,
+      "mean_diff": -0.00935,
+      "dm_stat": -0.248,
+      "mdm_stat": -0.246,
+      "p_value_one": 0.5973,
+      "p_value_two": 0.8054,
+      "sig_90": false,
+      "sig_95": false,
+      "sig_99": false
+    },
+    "dm_vs_sma_01": {
+      "T": 535,
+      "mean_loss_model": 0.4785,
+      "mean_loss_bench": 0.49346,
+      "mean_diff": 0.01495,
+      "dm_stat": 0.327,
+      "mdm_stat": 0.325,
+      "p_value_one": 0.3725,
+      "p_value_two": 0.745,
+      "sig_90": false,
+      "sig_95": false,
+      "sig_99": false
+    },
+    "dm_vs_bh_brier": {
+      "T": 535,
+      "mean_loss_model": 0.27962,
+      "mean_loss_bench": 0.46916,
+      "mean_diff": 0.18954,
+      "dm_stat": 5.818,
+      "mdm_stat": 5.791,
+      "p_value_one": 0.0,
+      "p_value_two": 0.0,
+      "sig_90": true,
+      "sig_95": true,
+      "sig_99": true
+    },
+    "dm_vs_sma_brier": {
+      "T": 535,
+      "mean_loss_model": 0.27962,
+      "mean_loss_bench": 0.49346,
+      "mean_diff": 0.21384,
+      "dm_stat": 6.302,
+      "mdm_stat": 6.273,
+      "p_value_one": 0.0,
+      "p_value_two": 0.0,
+      "sig_90": true,
+      "sig_95": true,
+      "sig_99": true
+    },
+    "sign_test": {
+      "T": 535,
+      "correct": 279,
+      "accuracy": 0.5215,
+      "p_value": 0.1708,
+      "sig_90": false,
+      "sig_95": false,
+      "sig_99": false
+    },
+    "elapsed_seconds": 50.7
+  },
+  "TSLA": {
+    "n_obs": 535,
+    "n_retrains": 9,
+    "accuracy": {
+      "ml": 0.4598,
+      "bh": 0.5009,
+      "sma": 0.4916
+    },
+    "dm_vs_bh_01": {
+      "T": 535,
+      "mean_loss_model": 0.54019,
+      "mean_loss_bench": 0.49907,
+      "mean_diff": -0.04112,
+      "dm_stat": -1.147,
+      "mdm_stat": -1.141,
+      "p_value_one": 0.8729,
+      "p_value_two": 0.2542,
+      "sig_90": false,
+      "sig_95": false,
+      "sig_99": false
+    },
+    "dm_vs_sma_01": {
+      "T": 535,
+      "mean_loss_model": 0.54019,
+      "mean_loss_bench": 0.50841,
+      "mean_diff": -0.03178,
+      "dm_stat": -0.755,
+      "mdm_stat": -0.752,
+      "p_value_one": 0.7737,
+      "p_value_two": 0.4525,
+      "sig_90": false,
+      "sig_95": false,
+      "sig_99": false
+    },
+    "dm_vs_bh_brier": {
+      "T": 535,
+      "mean_loss_model": 0.26233,
+      "mean_loss_bench": 0.49907,
+      "mean_diff": 0.23674,
+      "dm_stat": 8.201,
+      "mdm_stat": 8.163,
+      "p_value_one": 0.0,
+      "p_value_two": 0.0,
+      "sig_90": true,
+      "sig_95": true,
+      "sig_99": true
+    },
+    "dm_vs_sma_brier": {
+      "T": 535,
+      "mean_loss_model": 0.26233,
+      "mean_loss_bench": 0.50841,
+      "mean_diff": 0.24608,
+      "dm_stat": 8.282,
+      "mdm_stat": 8.243,
+      "p_value_one": 0.0,
+      "p_value_two": 0.0,
+      "sig_90": true,
+      "sig_95": true,
+      "sig_99": true
+    },
+    "sign_test": {
+      "T": 535,
+      "correct": 246,
+      "accuracy": 0.4598,
+      "p_value": 0.9715,
+      "sig_90": false,
+      "sig_95": false,
+      "sig_99": false
+    },
+    "elapsed_seconds": 50.8
+  },
+  "GOOGL": {
+    "n_obs": 535,
+    "n_retrains": 9,
+    "accuracy": {
+      "ml": 0.4729,
+      "bh": 0.5869,
+      "sma": 0.5533
+    },
+    "dm_vs_bh_01": {
+      "T": 535,
+      "mean_loss_model": 0.5271,
+      "mean_loss_bench": 0.41308,
+      "mean_diff": -0.11402,
+      "dm_stat": -3.261,
+      "mdm_stat": -3.245,
+      "p_value_one": 0.9994,
+      "p_value_two": 0.0012,
+      "sig_90": false,
+      "sig_95": false,
+      "sig_99": false
+    },
+    "dm_vs_sma_01": {
+      "T": 535,
+      "mean_loss_model": 0.5271,
+      "mean_loss_bench": 0.44673,
+      "mean_diff": -0.08037,
+      "dm_stat": -1.665,
+      "mdm_stat": -1.658,
+      "p_value_one": 0.951,
+      "p_value_two": 0.098,
+      "sig_90": false,
+      "sig_95": false,
+      "sig_99": false
+    },
+    "dm_vs_bh_brier": {
+      "T": 535,
+      "mean_loss_model": 0.28279,
+      "mean_loss_bench": 0.41308,
+      "mean_diff": 0.1303,
+      "dm_stat": 5.135,
+      "mdm_stat": 5.111,
+      "p_value_one": 0.0,
+      "p_value_two": 0.0,
+      "sig_90": true,
+      "sig_95": true,
+      "sig_99": true
+    },
+    "dm_vs_sma_brier": {
+      "T": 535,
+      "mean_loss_model": 0.28279,
+      "mean_loss_bench": 0.44673,
+      "mean_diff": 0.16394,
+      "dm_stat": 4.95,
+      "mdm_stat": 4.927,
+      "p_value_one": 0.0,
+      "p_value_two": 0.0,
+      "sig_90": true,
+      "sig_95": true,
+      "sig_99": true
+    },
+    "sign_test": {
+      "T": 535,
+      "correct": 253,
+      "accuracy": 0.4729,
+      "p_value": 0.9027,
+      "sig_90": false,
+      "sig_95": false,
+      "sig_99": false
+    },
+    "elapsed_seconds": 49.7
+  },
+  "JPM": {
+    "n_obs": 535,
+    "n_retrains": 9,
+    "accuracy": {
+      "ml": 0.5813,
+      "bh": 0.5963,
+      "sma": 0.5084
+    },
+    "dm_vs_bh_01": {
+      "T": 535,
+      "mean_loss_model": 0.41869,
+      "mean_loss_bench": 0.40374,
+      "mean_diff": -0.01495,
+      "dm_stat": -0.59,
+      "mdm_stat": -0.587,
+      "p_value_one": 0.7214,
+      "p_value_two": 0.5572,
+      "sig_90": false,
+      "sig_95": false,
+      "sig_99": false
+    },
+    "dm_vs_sma_01": {
+      "T": 535,
+      "mean_loss_model": 0.41869,
+      "mean_loss_bench": 0.49159,
+      "mean_diff": 0.0729,
+      "dm_stat": 2.644,
+      "mdm_stat": 2.632,
+      "p_value_one": 0.0044,
+      "p_value_two": 0.0087,
+      "sig_90": true,
+      "sig_95": true,
+      "sig_99": true
+    },
+    "dm_vs_bh_brier": {
+      "T": 535,
+      "mean_loss_model": 0.25685,
+      "mean_loss_bench": 0.40374,
+      "mean_diff": 0.14689,
+      "dm_stat": 5.894,
+      "mdm_stat": 5.867,
+      "p_value_one": 0.0,
+      "p_value_two": 0.0,
+      "sig_90": true,
+      "sig_95": true,
+      "sig_99": true
+    },
+    "dm_vs_sma_brier": {
+      "T": 535,
+      "mean_loss_model": 0.25685,
+      "mean_loss_bench": 0.49159,
+      "mean_diff": 0.23474,
+      "dm_stat": 8.756,
+      "mdm_stat": 8.715,
+      "p_value_one": 0.0,
+      "p_value_two": 0.0,
+      "sig_90": true,
+      "sig_95": true,
+      "sig_99": true
+    },
+    "sign_test": {
+      "T": 535,
+      "correct": 311,
+      "accuracy": 0.5813,
+      "p_value": 0.0001,
+      "sig_90": true,
+      "sig_95": true,
+      "sig_99": true
+    },
+    "elapsed_seconds": 50.4
+  }
+}
