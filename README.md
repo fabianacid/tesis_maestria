@@ -31,6 +31,9 @@ Tesis Final — Maestría en Finanzas, Universidad Nacional de Rosario (UNR)
   - [Alertas](#alertas)
   - [Estado del Sistema](#estado-del-sistema)
 - [Características de Seguridad](#características-de-seguridad)
+- [Testing y Resultados](#testing-y-resultados)
+  - [Suite de Pruebas Automatizadas](#suite-de-pruebas-automatizadas)
+  - [Validación Estadística — Test de Diebold-Mariano](#validación-estadística--test-de-diebold-mariano)
 - [Troubleshooting](#troubleshooting)
 - [Extensiones Futuras](#extensiones-futuras)
 - [Autor](#autor)
@@ -396,11 +399,15 @@ proyecto_final/
 │   └── ANEXO_TECNICO_CALCULOS.md  # Fórmulas y cálculos técnicos del sistema
 ├── tests/                    # Suite de pruebas
 │   ├── __init__.py
-│   ├── test_functional.py   # Pruebas funcionales (30 tests)
-│   └── test_performance.py  # Pruebas de carga
+│   ├── test_functional.py        # Pruebas funcionales (30 tests)
+│   ├── test_performance.py       # Pruebas de carga
+│   └── test_diebold_mariano.py   # Validación estadística — DM test (Harvey et al. 1997)
 ├── test_results/             # Resultados de pruebas
-│   ├── graficos/            # Gráficos (PDF/PNG)
-│   └── *.json               # Resultados en JSON
+│   ├── graficos/                          # Gráficos (PDF/PNG)
+│   ├── dm_test_20260622_112731.json       # DM test — 2 años (5 tickers, sin régimen)
+│   ├── dm_test_20260622_114812.json       # DM test — 2 años con análisis por régimen
+│   ├── dm_test_4y_20260622_121830.json    # DM test — 4 años, ciclo completo 2022-2026
+│   └── *.json                             # Otros resultados en JSON
 ├── requirements.txt
 ├── requirements-test.txt     # Dependencias de testing
 ├── run_all_tests.bat        # Script Windows para ejecutar tests
@@ -1422,6 +1429,7 @@ test_results/graficos/
 | Análisis sentimiento NLP | Ensemble 4 modelos | FinBERT+VADER+Lexicón+TextBlob | ✅ |
 | Optimización de portafolio | Markowitz | Máx Sharpe + Mín Varianza + Frontera eficiente | ✅ |
 | Backtesting walk-forward | Walk-forward ML | Backtrader + MLSignalStrategy + 2 benchmarks (B&H + SMA Crossover 20/50) | ✅ |
+| Validación estadística | Test de superioridad predictiva | Diebold-Mariano MDM + Brier score + Sign test + análisis por régimen (5 tickers, 2 y 4 años) | ✅ |
 | Tiempo respuesta | < 5s | 4.65s promedio (config. final) | ✅ |
 | 10+ usuarios concurrentes | ≥ 10 | 10 usuarios @ 100% (25 en config. inicial) | ✅ |
 | Dashboard funcional | Implementado | Streamlit (4 pestañas) | ✅ |
@@ -1432,10 +1440,13 @@ Todos los resultados están guardados en formato JSON/CSV para análisis posteri
 
 ```bash
 test_results/
-├── functional_test_20260213_233918.json    # Resultados detallados con métricas de clasificación
-├── functional_test_20260213_233918.csv     # Formato tabular
-├── performance_test_20260209_160016.json   # Pruebas de carga
-└── summary_20260213_233918.json            # Resumen ejecutivo con estadísticas de clasificación
+├── functional_test_20260213_233918.json       # Resultados detallados con métricas de clasificación
+├── functional_test_20260213_233918.csv        # Formato tabular
+├── performance_test_20260209_160016.json      # Pruebas de carga
+├── summary_20260213_233918.json               # Resumen ejecutivo con estadísticas de clasificación
+├── dm_test_20260622_112731.json               # DM test — 2 años (5 tickers)
+├── dm_test_20260622_114812.json               # DM test — 2 años con análisis por régimen
+└── dm_test_4y_20260622_121830.json            # DM test — 4 años, ciclo completo 2022-2026
 ```
 
 **Contenido del resumen incluye:**
@@ -1443,6 +1454,57 @@ test_results/
 - Rendimiento por agente (100% todos los agentes)
 - Estadísticas de latencia (promedio, mín, máx)
 - Distribución de errores (si los hay)
+
+---
+
+### Validación Estadística — Test de Diebold-Mariano
+
+El archivo `tests/test_diebold_mariano.py` implementa una evaluación estadística rigurosa de la superioridad predictiva del ensemble ML frente a dos benchmarks pasivos, siguiendo el protocolo de Diebold & Mariano (1995) con la corrección de muestra pequeña de Harvey, Leybourne & Newbold (1997).
+
+#### Metodología
+
+- **Test MDM** (Modified Diebold-Mariano): estadístico `d̄ / √(S²/T)` con varianza HAC Newey-West (kernel Bartlett) y distribución `t(T-1)`. Corrección small-sample de Harvey et al. (1997).
+- **Dos funciones de pérdida**: pérdida 0-1 (exactitud de dirección) y Brier score (calibración de probabilidades).
+- **Dos benchmarks**: Buy & Hold (siempre predice subida) y SMA Crossover (20/50).
+- **Sign test binomial**: complemento no paramétrico, H0: accuracy = 50%.
+- **Análisis por régimen de mercado**: segmentación por tendencia (precio vs SMA200) y volatilidad (vol 20d vs percentil 75 histórico).
+- **Walk-forward sin data leakage**: cada período usa solo datos anteriores al punto de evaluación (ventana 504 días, reentrenamiento trimestral cada 63 días).
+
+#### Ejecutar el test
+
+```bash
+# Test completo — 5 tickers, 2 años (≈4 min)
+python tests/test_diebold_mariano.py
+
+# Test con 4 años de datos — ciclo completo 2022-2026 (≈8 min)
+python -c "
+from tests.test_diebold_mariano import run_dm_suite, print_aggregate_summary
+results = run_dm_suite(['AAPL','MSFT','TSLA','GOOGL','JPM'], years=4)
+print_aggregate_summary(results)
+"
+```
+
+#### Resultados — 4 años (ciclo completo 2022-2026)
+
+| Ticker | Acc ML | Acc B&H | Acc SMA | DM vs B&H (p) | DM vs SMA (p) | Sign test |
+|--------|--------|---------|---------|---------------|---------------|-----------|
+| AAPL | 49.8% | 56.1% | 50.4% | 0.990 | 0.582 | 0.574 |
+| **MSFT** | **54.0%** | 54.6% | 51.3% | 0.616 | 0.162 | **0.006 \*\*** |
+| TSLA | 48.9% | 49.1% | 48.2% | 0.526 | 0.407 | 0.772 |
+| GOOGL | 51.7% | 56.0% | 52.3% | 0.943 | 0.571 | 0.146 |
+| JPM | 52.4% | 59.7% | 51.6% | 0.997 | 0.374 | 0.060 \* |
+
+*Nota: p-valores a una cola, H1: ML es superior. Pérdida 0-1.*
+
+**Brier score (calibración de probabilidades):** ML supera a ambos benchmarks en los **5/5 tickers** con p < 0.001 en todos los casos — resultado consistente en ciclo completo.
+
+#### Hallazgos clave
+
+1. **Calibración de probabilidades (Brier score)**: el ensemble produce probabilidades estadísticamente mejor calibradas que Buy & Hold y SMA Crossover en todos los activos y períodos evaluados (p < 0.001). Este es el resultado más robusto de la validación.
+2. **MSFT**: único activo donde el sign test alcanza significancia estadística en ciclo completo (p = 0.006, accuracy 54.0%). La mayor muestra (4 años, 1039 obs) revela una ventaja que no era visible con 2 años.
+3. **GOOGL en mercado bajista**: en los 304 días de tendencia bajista, el ML supera al SMA Crossover con p = 0.013 (accuracy 58.9% vs 52.0%), detectando oportunidades que el modelo técnico pierde en correcciones.
+4. **Sesgo alcista del B&H (2022-2026)**: el período evaluado incluye el mercado bajista de 2022 y la recuperación 2023-2026. El B&H tiene accuracy artificialmente alta en mercados direccionales; el ML compite en dirección pero lo supera en calibración.
+5. **Análisis por régimen**: la segmentación confirma que el ML no es uniformemente superior — la ventaja aparece en regímenes específicos por ticker, lo que refuerza la utilidad del análisis condicional.
 
 
 
