@@ -107,8 +107,8 @@ datos = [
     ('Tesista',        'Ing. María Fabiana Cid'),
     ('Director',       'Ph.D. Luciano Machain (UNR)'),
     ('Programa',       'Maestría en Finanzas — Universidad Nacional de Rosario'),
-    ('Versión actual', 'V15 — junio 2026  (53+ páginas)'),
-    ('Repositorio',    'github.com/fabianacid/TP_Final  (rama: maestria_tesis)'),
+    ('Versión actual', 'V15 — junio 2026  (55+ páginas)'),
+    ('Repositorio',    'github.com/fabianacid/tesis_maestria  (rama: master)'),
     ('Stack principal','Python 3.10 · FastAPI · Streamlit · scikit-learn · yfinance · SEC EDGAR'),
 ]
 for k, v in datos:
@@ -160,6 +160,7 @@ filas = [
     ('SECAgent — yfinance + SEC EDGAR API',        '✅ Implementado', 'Ratios + filings 10 tickers'),
     ('PortfolioAgent — Markowitz + HRP',           '✅ Implementado', 'Frontera eficiente, Sharpe, VaR'),
     ('BacktestAgent — walk-forward Backtrader',    '✅ Implementado', 'ML vs Buy&Hold vs SMA 20/50'),
+    ('Validación estadística — Test Diebold-Mariano','✅ Implementado', '5 tickers · 2 y 4 años · análisis por régimen'),
     ('API REST FastAPI + autenticación JWT/bcrypt', '✅ Implementado', 'OWASP / Comunicación A 7724'),
     ('Dashboard Streamlit — 4 pestañas',           '✅ Implementado', 'Capturas en Capítulo 4'),
 ]
@@ -207,6 +208,9 @@ metricas = [
     ('Sharpe ratio ML',             '0,87',                  '> 0',        '✅ Cumple'),
     ('Win rate backtesting',        '54,3 %',                '> 50 %',     '✅ Cumple'),
     ('Disponibilidad (1–10 users)', '100 %',                 '≥ 99 %',     '✅ Cumple'),
+    ('DM Brier score (5 tickers)', 'p < 0,001 en 5/5',      'p < 0,05',   '✅ Cumple'),
+    ('DM dirección — MSFT 4 años', 'Sign test p = 0,006',   'p < 0,05',   '✅ Cumple'),
+    ('DM dirección — GOOGL bajista','MDM p = 0,013 vs SMA', 'p < 0,05',   '✅ Cumple'),
 ]
 for m, r, req, est in metricas:
     row = tabla_res.add_row()
@@ -347,6 +351,18 @@ items_v15 = [
     ('Marco teórico actualizado',
      'Secciones 2.2 y 2.5 ampliadas con fundamentos de MDI/MDA, SHAP y HRP. '
      'Conclusiones (5.1) y aplicación de contenidos del posgrado (5.2) actualizadas.'),
+    ('Validación estadística — Test de Diebold-Mariano (Harvey et al., 1997)',
+     'Se implementó el test MDM (Modified Diebold-Mariano) con estimador HAC Newey-West '
+     '(kernel Bartlett) para comparar la exactitud predictiva del ensemble ML frente a dos '
+     'benchmarks pasivos (Buy & Hold y SMA Crossover 20/50). '
+     'Se evaluaron dos funciones de pérdida: pérdida 0-1 (dirección) y Brier score (calibración). '
+     'Se incluyó análisis por régimen de mercado (alcista/bajista por SMA200; '
+     'alta/baja volatilidad por percentil 75 de vol 20d histórica). '
+     'Resultados sobre 1039 obs. diarias por ticker (ciclo completo 2022-2026, 17 reentrenamientos): '
+     'Brier score: ML superior en 5/5 tickers con p < 0,001 (calibración de probabilidades robusta). '
+     'Dirección: MSFT sign test p = 0,006 (accuracy 54 % en ciclo completo); '
+     'GOOGL en mercado bajista MDM p = 0,013 vs SMA (accuracy 58,9 % vs 52 %). '
+     'El análisis por régimen confirmó que la ventaja del ML es selectiva y condicional al contexto de mercado.'),
 ]
 
 for titulo, desc in items_v15:
@@ -365,9 +381,10 @@ doc.add_paragraph().paragraph_format.space_after = Pt(4)
 add_heading(doc, '6. Trabajo pendiente y próximos pasos', level=2)
 
 pendientes = [
-    'Corrección y ajuste fino de la memoria técnica V15 según observaciones del director.',
+    'Corrección y ajuste fino de la memoria técnica V15 según observaciones del director (incorporar resultados del test DM en Capítulo 4).',
     'Extensión de SHAP values al ensemble completo (XGBoost, LightGBM) para análisis comparativo de explicabilidad entre modelos.',
     'Incorporación de al menos un feature macroeconómico (VIX o tasa de referencia) como variable exógena en el ModelAgent.',
+    'Incorporar los resultados del test Diebold-Mariano como evidencia estadística formal en el Capítulo 5 (Conclusiones) de la tesis.',
     'Preparación de la presentación final y defensa oral ante el jurado.',
 ]
 for item in pendientes:
@@ -379,8 +396,8 @@ p_pie = doc.add_paragraph()
 p_pie.alignment = WD_ALIGN_PARAGRAPH.CENTER
 p_pie.paragraph_format.space_after = Pt(0)
 run_pie = p_pie.add_run(
-    'Documento generado el 19 de junio de 2026  ·  '
-    'Repositorio: github.com/fabianacid/TP_Final  ·  '
+    'Documento generado el 22 de junio de 2026  ·  '
+    'Repositorio: github.com/fabianacid/tesis_maestria  ·  '
     'Versión memoria: TI_Cid_Fabiana_V15.docx')
 run_pie.font.size = Pt(8)
 run_pie.italic = True
