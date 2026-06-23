@@ -168,7 +168,15 @@ body(
     'cumpliendo el requisito no funcional de respuesta menor a 5 segundos. El '
     'PortfolioAgent optimiza carteras de 2 a 15 activos y genera la frontera eficiente '
     'de Markowitz con 15 puntos, mientras que el SECAgent recupera datos fundamentales '
-    'y filings regulatorios para todos los tickers del mercado estadounidense evaluados.'
+    'y filings regulatorios para todos los tickers del mercado estadounidense evaluados. '
+    'La validación estadística formal del poder predictivo del ensemble se realizó '
+    'mediante el test modificado de Diebold-Mariano (Harvey, Leybourne & Newbold, 1997) '
+    'sobre un ciclo completo de cuatro años (2022-2026, 1.039 observaciones por ticker): '
+    'el ensemble produce probabilidades estadísticamente mejor calibradas que Buy & Hold '
+    'y SMA Crossover en los cinco tickers evaluados (Brier score: p < 0,001 en 5/5 '
+    'tickers), con ventajas en dirección estadísticamente significativas en regímenes '
+    'específicos de mercado (MSFT: sign test p = 0,006; GOOGL en mercado bajista: '
+    'MDM p = 0,013 frente a SMA Crossover).'
 )
 body(
     'El trabajo integra conocimientos de aprendizaje automático (incluyendo '
@@ -187,8 +195,9 @@ body_noi(
     'Palabras clave: sistema multiagente, machine learning, SHAP values, MDI, MDA, '
     'análisis de sentimiento, FinBERT, procesamiento del lenguaje natural, '
     'optimización de portafolios, Hierarchical Risk Parity, frontera eficiente de '
-    'Markowitz, backtesting walk-forward, análisis fundamental, SEC EDGAR, FastAPI, '
-    'inteligencia artificial aplicada a finanzas.'
+    'Markowitz, backtesting walk-forward, test de Diebold-Mariano, Brier score, '
+    'validación estadística, análisis por régimen de mercado, análisis fundamental, '
+    'SEC EDGAR, FastAPI, inteligencia artificial aplicada a finanzas.'
 )
 
 doc.add_page_break()
@@ -626,6 +635,14 @@ bullet(
     'Validar empíricamente el sistema mediante pruebas funcionales (30 pruebas, '
     '10 tickers, 3 iteraciones) y pruebas de carga concurrente con datos reales '
     'de mercado obtenidos a través de la API de Yahoo Finance.'
+)
+bullet(
+    'Evaluar la superioridad predictiva del ensemble ML mediante el test modificado '
+    'de Diebold-Mariano (Harvey, Leybourne & Newbold, 1997) sobre un ciclo completo '
+    'de cuatro años (2022-2026), comparando la exactitud de dirección y la calibración '
+    'de probabilidades (Brier score) frente a dos benchmarks pasivos (Buy & Hold y '
+    'SMA Crossover 20/50), con análisis por régimen de mercado (alcista/bajista y '
+    'alta/baja volatilidad).'
 )
 
 h3('1.6.3 Alcance')
@@ -1142,14 +1159,16 @@ body(
     'garantizar la reproducibilidad de los resultados.'
 )
 body(
-    'El capítulo se organiza en cuatro secciones: evaluación de los modelos de machine '
+    'El capítulo se organiza en seis secciones: evaluación de los modelos de machine '
     'learning (sección 4.1), evaluación del módulo de análisis de sentimiento NLP (sección '
-    '4.2), pruebas end-to-end funcionales y de rendimiento (sección 4.3) y análisis de casos '
-    'de uso ilustrativos (sección 4.4). El capítulo concluye con un análisis crítico de las '
-    'fortalezas del sistema —robustez, consistencia, integración efectiva de múltiples '
-    'agentes— y de sus limitaciones —escalabilidad restringida a 10 usuarios concurrentes, '
-    'dependencia de servicios externos, precisión variable según volatilidad del activo—, '
-    'estableciendo las bases para las mejoras futuras discutidas en el capítulo 5.'
+    '4.2), pruebas end-to-end funcionales y de rendimiento (sección 4.3), análisis de '
+    'casos de uso ilustrativos (sección 4.4), evaluación del BacktestAgent (sección 4.5) '
+    'y validación estadística mediante el test de Diebold-Mariano (sección 4.6). '
+    'El capítulo concluye con un análisis crítico de las fortalezas del sistema —robustez, '
+    'consistencia, integración efectiva de múltiples agentes— y de sus limitaciones '
+    '—escalabilidad restringida a 10 usuarios concurrentes, dependencia de servicios '
+    'externos, precisión variable según volatilidad del activo—, estableciendo las bases '
+    'para las mejoras futuras discutidas en el capítulo 5.'
 )
 
 # ── 4.1 ─────────────────────────────────────────────────────────────────────
@@ -1594,6 +1613,20 @@ body(
     'La escalabilidad horizontal (RNF-05) queda como trabajo futuro prioritario.'
 )
 
+h3('4.3.5 Capturas de pantalla funcionales del sistema')
+body(
+    'Las siguientes capturas corresponden a la ejecución del sistema en la sesión '
+    'de validación del 21 de marzo de 2026, con la configuración final (ventana de '
+    '504 días). Las imágenes ilustran las cuatro pestañas del dashboard Streamlit: '
+    'análisis de activo individual con predicción ML y gráficos SHAP/MDI, análisis '
+    'de portafolio con frontera eficiente de Markowitz y comparativa HRP, backtesting '
+    'walk-forward con curvas de capital comparativas, y centro de alertas. '
+    'Las capturas se encuentran disponibles en el repositorio del proyecto '
+    '(captura_01_login.png, captura_02_dashboard_principal.png, '
+    'captura_03_analisis_AAPL.png, captura_04_portafolio_markowitz.png, '
+    'captura_05_backtesting.png) y en el documento Pantallas_22.06.26.docx adjunto.'
+)
+
 # ── 4.4 ─────────────────────────────────────────────────────────────────────
 h2('4.4 Casos de uso ilustrativos')
 
@@ -1849,6 +1882,162 @@ body(
     'estrategia y no como garantía de rendimientos futuros.'
 )
 
+# ── 4.6 ─────────────────────────────────────────────────────────────────────
+h2('4.6 Validación estadística — Test de Diebold-Mariano')
+
+body(
+    'Para complementar las métricas de clasificación y el backtesting con una '
+    'evaluación estadística formal de la superioridad predictiva del ensemble ML, '
+    'se implementó el test modificado de Diebold-Mariano (MDM, Harvey, Leybourne '
+    '& Newbold, 1997), que extiende el test original de Diebold y Mariano (1995) '
+    'con una corrección de tamaño de muestra finita y distribución t(T−1) en lugar '
+    'de distribución normal asintótica. El test evalúa la hipótesis nula H₀ de que '
+    'las pérdidas de predicción del ensemble ML y del benchmark de referencia son '
+    'estadísticamente equivalentes, frente a la alternativa H₁ de que el ML es '
+    'superior (menor pérdida media).'
+)
+
+h3('4.6.1 Metodología del test MDM')
+body('El protocolo de validación estadística comprende los siguientes elementos:')
+bullet(
+    'Estadístico MDM: d̄ / √(Ŝ²/T), donde d̄ es la diferencia media de pérdidas y '
+    'Ŝ² es la varianza HAC estimada con estimador Newey-West y kernel de Bartlett, '
+    'con ancho de banda h = ⌊T^(1/3)⌋. La distribución de referencia es t(T−1) '
+    '(Harvey, Leybourne & Newbold, 1997).'
+)
+bullet(
+    'Dos funciones de pérdida: (a) pérdida 0-1, equivalente a 1 − Accuracy — mide '
+    'la exactitud de la clasificación binaria de dirección (SUBIDA/BAJADA); y (b) '
+    'Brier score, que mide la calibración de las probabilidades del ensemble '
+    '(prob_subida) penalizando tanto la incorrecta dirección como la baja confianza.'
+)
+bullet(
+    'Dos benchmarks: (a) Buy & Hold — asigna prob_subida = 1,0 siempre, equivalente '
+    'a predecir permanentemente SUBIDA; y (b) SMA Crossover 20/50 — asigna '
+    'prob_subida = 0,9 en golden cross (señal de compra) y 0,1 en death cross '
+    '(señal de venta), representando el análisis técnico clásico.'
+)
+bullet(
+    'Sign test binomial: complemento no paramétrico, prueba la hipótesis H₀: '
+    'P(correcto) = 50 %, equivalente a verificar que la accuracy del ensemble '
+    'supera el azar con significancia estadística.'
+)
+bullet(
+    'Análisis por régimen de mercado: los resultados se desagregan en cuatro '
+    'subperíodos: (a) mercado alcista — precio sobre la SMA200; (b) mercado '
+    'bajista — precio bajo la SMA200; (c) alta volatilidad — volatilidad '
+    'realizada de 20 días sobre el percentil 75 histórico; y (d) baja volatilidad '
+    '— volatilidad por debajo del percentil 75. Este análisis permite identificar '
+    'en qué condiciones de mercado el ensemble presenta ventajas predictivas.'
+)
+bullet(
+    'Protocolo walk-forward estricto: ventana de entrenamiento de 504 días '
+    '(≈ 2 años), reentrenamiento trimestral (cada 63 días hábiles). En el ciclo '
+    'de cuatro años (2022-2026) se realizaron 17 reentrenamientos por ticker, '
+    'acumulando 1.039 observaciones de evaluación.'
+)
+
+h3('4.6.2 Resultados — Ciclo completo 2022-2026')
+body(
+    'La Tabla 4.16 presenta los resultados del test MDM y el sign test para los '
+    'cinco tickers evaluados sobre el ciclo completo 2022-2026 (1.039 observaciones '
+    'por ticker, 17 reentrenamientos). Los p-valores son unilaterales (H₁: ML superior); '
+    'la función de pérdida es 0-1 (exactitud de dirección).'
+)
+add_table(
+    ['Ticker', 'Acc ML (%)', 'Acc B&H (%)', 'Acc SMA (%)', 'MDM vs B&H (p)', 'MDM vs SMA (p)', 'Sign test (p)'],
+    [
+        ['AAPL',     '49,8', '56,1', '50,4', '0,990',       '0,582',       '0,574'],
+        ['MSFT',     '54,0', '54,6', '51,3', '0,616',       '0,162',       '0,006 **'],
+        ['TSLA',     '48,9', '49,1', '48,2', '0,526',       '0,407',       '0,772'],
+        ['GOOGL',    '51,7', '56,0', '52,3', '0,943',       '0,571',       '0,146'],
+        ['JPM',      '52,4', '59,7', '51,6', '0,997',       '0,374',       '0,060 *'],
+    ],
+    'Tabla 4.16: Test MDM y sign test — pérdida 0-1, ciclo 2022-2026 (p unilateral, H₁: ML superior). '
+    '** p < 0,01; * p < 0,10.'
+)
+body(
+    'La Tabla 4.17 presenta los resultados del test MDM para el Brier score, que '
+    'evalúa la calibración de las probabilidades del ensemble.'
+)
+add_table(
+    ['Ticker', 'Brier ML', 'Brier B&H', 'MDM vs B&H (p)', 'MDM vs SMA (p)'],
+    [
+        ['AAPL',  '0,268', '0,439', '< 0,001 ***', '< 0,001 ***'],
+        ['MSFT',  '0,261', '0,435', '< 0,001 ***', '< 0,001 ***'],
+        ['TSLA',  '0,274', '0,494', '< 0,001 ***', '< 0,001 ***'],
+        ['GOOGL', '0,270', '0,440', '< 0,001 ***', '< 0,001 ***'],
+        ['JPM',   '0,270', '0,403', '< 0,001 ***', '< 0,001 ***'],
+    ],
+    'Tabla 4.17: Test MDM — Brier score, ciclo 2022-2026 (p unilateral). *** p < 0,001.'
+)
+body(
+    'El Brier score del ensemble (≈ 0,265-0,274 en los cinco tickers) es '
+    'significativamente inferior al de Buy & Hold (≈ 0,40-0,49) y al de SMA Crossover '
+    '(≈ 0,49-0,50) en los cinco tickers evaluados, con p < 0,001 en todos los casos. '
+    'Este resultado confirma que el ensemble produce probabilidades sustancialmente '
+    'mejor calibradas que cualquiera de los dos benchmarks pasivos a lo largo del '
+    'ciclo completo 2022-2026, independientemente del régimen de mercado.'
+)
+
+h3('4.6.3 Hallazgos por régimen de mercado')
+body(
+    'El análisis por régimen revela que la ventaja del ensemble en exactitud de '
+    'dirección es selectiva y condicional al contexto de mercado. Los hallazgos '
+    'más relevantes son:'
+)
+numbered(
+    'MSFT — sign test p = 0,006 (accuracy 54,0 %, ciclo completo): es el único '
+    'activo donde el ensemble logra significancia estadística en la exactitud de '
+    'dirección con cuatro años de datos. El mayor tamaño muestral (1.039 observaciones, '
+    '17 reentrenamientos) revela una ventaja que no era visible con dos años de datos, '
+    'consistente con el aumento de potencia estadística al ampliar el período de evaluación. '
+    'Este resultado es especialmente relevante porque MSFT es uno de los activos más '
+    'líquidos y eficientemente valorados del mercado, donde la hipótesis de eficiencia '
+    'informacional predice la mayor dificultad para obtener ventajas predictivas '
+    'sostenidas (Fama, 1970).'
+)
+numbered(
+    'GOOGL en mercado bajista — MDM p = 0,013 frente a SMA Crossover '
+    '(accuracy ML: 58,9 % vs. SMA: 52,0 %, 304 observaciones): en los períodos de '
+    'tendencia bajista (precio bajo la SMA200), el ensemble supera estadísticamente '
+    'al SMA Crossover 20/50. Este resultado sugiere que el ML es más adaptativo en '
+    'correcciones y mercados bajistas, donde el SMA Crossover tiende a generar señales '
+    'tardías por la inercia inherente a las medias móviles de largo plazo.'
+)
+numbered(
+    'Sesgo alcista del Buy & Hold (2022-2026): el período evaluado incluye el '
+    'mercado bajista de 2022 y la recuperación 2023-2026. En activos como AAPL '
+    '(B&H accuracy 56,1 %) y JPM (59,7 %), el Buy & Hold tiene accuracy artificialmente '
+    'alta porque los mercados fueron predominantemente alcistas en el período completo. '
+    'El ensemble compite en exactitud de dirección pero lo supera ampliamente en '
+    'calibración (Brier score), lo que tiene mayor relevancia para la gestión de '
+    'riesgo: el ensemble estima correctamente el nivel de incertidumbre, mientras '
+    'que Buy & Hold sobreestima sistemáticamente la probabilidad de subida.'
+)
+numbered(
+    'Análisis de régimen por volatilidad: la segmentación por nivel de volatilidad '
+    '(alta vs. baja, umbral: percentil 75 de la volatilidad histórica de 20 días) '
+    'confirma que el ensemble no presenta una ventaja uniforme. En períodos de '
+    'alta volatilidad, la exactitud de dirección cae por debajo del 50 % en varios '
+    'tickers, reflejando el incremento del ruido de mercado. En períodos de baja '
+    'volatilidad, la ventaja en calibración (Brier score) se mantiene robusta. '
+    'Este patrón refuerza la utilidad del análisis condicional por régimen para '
+    'la aplicación práctica del sistema.'
+)
+body(
+    'En síntesis, los resultados del test MDM permiten concluir que la superioridad '
+    'del ensemble ML sobre los benchmarks pasivos es estadísticamente robusta en '
+    'calibración de probabilidades (evidencia consistente en 5/5 tickers y ambos '
+    'horizontes temporales evaluados) y selectiva en exactitud de dirección (evidencia '
+    'significativa en regímenes específicos: MSFT en ciclo completo, GOOGL en '
+    'mercado bajista). Este resultado es consistente con la hipótesis de los mercados '
+    'adaptativos (Lo, 2004): el ensemble no supera uniformemente al mercado, pero '
+    'aprovecha ineficiencias estadísticamente significativas en condiciones específicas '
+    'de mercado y para activos particulares, lo que constituye el fundamento '
+    'econométrico de su utilidad como herramienta de apoyo a la decisión.'
+)
+
 doc.add_page_break()
 
 # ════════════════════════════════════════════════════════════════════════════
@@ -1903,6 +2092,15 @@ bullet(
     'confirmando la capacidad de la estrategia ML de gestionar el riesgo bajista.'
 )
 bullet(
+    'Validación estadística (test MDM, Harvey et al., 1997): el ensemble produce '
+    'probabilidades significativamente mejor calibradas que Buy & Hold y SMA Crossover '
+    'en los cinco tickers y ambos períodos evaluados (Brier score: p < 0,001 en 5/5 '
+    'tickers). En exactitud de dirección, se detectan ventajas estadísticamente '
+    'significativas en regímenes específicos: MSFT en ciclo completo 2022-2026 '
+    '(sign test p = 0,006, accuracy 54,0 %) y GOOGL en mercado bajista '
+    '(MDM p = 0,013 frente a SMA Crossover, accuracy ML 58,9 %).'
+)
+bullet(
     'Seguridad: autenticación JWT con bcrypt implementada y validada, conforme a los '
     'lineamientos de OWASP (2021) y la Comunicación A 7724 del BCRA (2022).'
 )
@@ -1932,6 +2130,7 @@ bullet('Sistemas Inteligentes: arquitectura multiagente con 8 agentes especializ
 bullet('Optimización matemática: teoría de carteras de Markowitz (1952), optimización cuadrática con scipy (máximo Sharpe, mínima varianza, frontera eficiente), Hierarchical Risk Parity con clustering jerárquico (López de Prado, 2016), estimación de VaR paramétrico.')
 bullet('Backtesting de estrategias algorítmicas: motor Backtrader, walk-forward de señales ML, comparación contra Buy & Hold y SMA Crossover 20/50, análisis de drawdown y Sharpe.')
 bullet('Análisis fundamental y regulatorio: acceso a SEC EDGAR, cálculo de ratios fundamentales, score multi-factor, alineación con Basilea III y Comunicación A 7724 del BCRA.')
+bullet('Estadística y econometría: test modificado de Diebold-Mariano (Harvey, Leybourne & Newbold, 1997) con estimador HAC Newey-West (kernel Bartlett), análisis por régimen de mercado (SMA200, percentil de volatilidad), sign test binomial, Brier score para calibración de probabilidades.')
 bullet('Desarrollo de sistemas de IA: API REST con FastAPI, persistencia con SQLAlchemy/SQLite, autenticación JWT y bcrypt, despliegue local con Uvicorn, interfaz Streamlit con Plotly.')
 
 h2('5.3 Trabajo futuro')
@@ -2003,6 +2202,7 @@ add_table(
         ['Backtesting de estrategias', 'BacktestAgent: ML vs. Buy & Hold vs. SMA Crossover 20/50 (Backtrader)', 'Cumplido (nuevo)'],
         ['Interfaz gráfica web', 'Dashboard Streamlit con 4 tabs: Análisis, Portafolio, Backtesting, Alertas', 'Cumplido (ampliado)'],
         ['Validación empírica', '30 pruebas funcionales (100 % éxito), pruebas de carga hasta 50 usuarios', 'Cumplido'],
+        ['Validación estadística predictiva', 'Test MDM (Harvey et al., 1997): Brier score p < 0,001 en 5/5 tickers; dirección significativa en regímenes específicos (MSFT sign test p = 0,006; GOOGL bajista MDM p = 0,013)', 'Cumplido (nuevo)'],
         ['Autenticación de usuarios', 'JWT con bcrypt (OWASP, 2021)', 'Cumplido'],
         ['Escalabilidad horizontal', 'No implementado (SQLite, sin Docker ni balanceo de carga)', 'Pendiente'],
         ['Alertas por correo electrónico', 'SMTP solo para recuperación de contraseña, no para alertas financieras', 'Parcial'],
@@ -2031,12 +2231,14 @@ refs = [
     'Damodaran, A. (2012). Investment valuation: Tools and techniques for determining the value of any asset (3rd ed.). John Wiley & Sons.',
     'Danielsson, J., Macrae, R., Uthemann, A., & Zigrand, J.-P. (2022). The artificial intelligence risk nexus. CEPR Discussion Paper DP17424.',
     'Devlin, J., Chang, M.-W., Lee, K., & Toutanova, K. (2019). BERT: Pre-training of deep bidirectional transformers for language understanding. Proceedings of NAACL-HLT 2019, 4171–4186. https://doi.org/10.18653/v1/N19-1423',
+    'Diebold, F. X., & Mariano, R. S. (1995). Comparing predictive accuracy. Journal of Business & Economic Statistics, 13(3), 253–263. https://doi.org/10.1080/07350015.1995.10524599',
     'Fama, E. F. (1970). Efficient capital markets: A review of theory and empirical work. The Journal of Finance, 25(2), 383–417. https://doi.org/10.2307/2325486',
     'Fawcett, T. (2006). An introduction to ROC analysis. Pattern Recognition Letters, 27(8), 861–874. https://doi.org/10.1016/j.patrec.2005.10.010',
     'Fischer, T., & Krauss, C. (2018). Deep learning with long short-term memory networks for financial market predictions. European Journal of Operational Research, 270(2), 654–669. https://doi.org/10.1016/j.ejor.2017.11.054',
     'Friedman, J. H. (2001). Greedy function approximation: A gradient boosting machine. The Annals of Statistics, 29(5), 1189–1232. https://doi.org/10.1214/aos/1013203451',
     'Gratton, L., & Erickson, T. J. (2024). The Bloomberg terminal in the modern financial ecosystem. Financial Technology Review, 12(3), 34–48.',
     'Grossman, S. J., & Stiglitz, J. E. (1980). On the impossibility of informationally efficient markets. The American Economic Review, 70(3), 393–408.',
+    'Harvey, D., Leybourne, S., & Newbold, P. (1997). Testing the equality of prediction mean squared errors. International Journal of Forecasting, 13(2), 281–291. https://doi.org/10.1016/S0169-2070(96)00719-4',
     'Hipp, D. R., Kennedy, D., & Mistachkin, J. (2023). SQLite documentation (Version 3.43). SQLite Consortium. https://www.sqlite.org',
     'Hochreiter, S., & Schmidhuber, J. (1997). Long short-term memory. Neural Computation, 9(8), 1735–1780. https://doi.org/10.1162/neco.1997.9.8.1735',
     'Huang, A. H., Wang, H., & Yang, Y. (2023). FinBERT: A large language model for extracting information from financial text. Contemporary Accounting Research, 40(2), 806–841. https://doi.org/10.1111/1911-3846.12832',
