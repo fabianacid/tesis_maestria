@@ -367,3 +367,103 @@ class PortfolioResponse(BaseModel):
     recomendacion_portafolio: str
     alertas: List[Dict[str, Any]]
     fecha_analisis: datetime
+
+
+# ============================================================
+# Schemas de Perfil de Riesgo
+# ============================================================
+
+class RiskProfileRequest(BaseModel):
+    """Cuestionario de perfil de riesgo del inversor (6 dimensiones)."""
+    edad: str = Field(
+        ...,
+        description="Grupo etario: menor_35 | 36_45 | 46_55 | 56_65 | mayor_65",
+    )
+    horizonte: str = Field(
+        ...,
+        description="Horizonte de inversión: menos_1_anio | 1_3_anios | 3_5_anios | 5_10_anios | mas_10_anios",
+    )
+    ingresos: str = Field(
+        ...,
+        description="Estabilidad de ingresos: muy_inestable | inestable | moderada | estable | muy_estable",
+    )
+    perdidas: str = Field(
+        ...,
+        description="Reacción ante caída del 20%: vender_todo | vender_mayoria | mantener | comprar_poco | comprar_mucho",
+    )
+    experiencia: str = Field(
+        ...,
+        description="Experiencia inversora: ninguna | basica | intermedia | avanzada | experto",
+    )
+    objetivo: str = Field(
+        ...,
+        description="Objetivo financiero: preservacion | ingreso | crecimiento_ingreso | crecimiento | especulacion",
+    )
+    usar_seleccion_dinamica: bool = Field(
+        default=True,
+        description="Si True, selecciona los mejores ETFs del universo usando datos históricos reales.",
+    )
+    lookback: str = Field(
+        default="1y",
+        description="Período histórico para selección dinámica: 6mo | 1y | 2y",
+    )
+
+
+class DimensionScoreSchema(BaseModel):
+    dimension: str
+    respuesta: str
+    puntos: int
+    max_puntos: int
+    interpretacion: str
+
+
+class SectorRecomendadoSchema(BaseModel):
+    sector: str
+    descripcion: str
+    etf: str
+    peso_target: float
+    retorno_hist: Optional[float] = None
+    volatilidad_hist: Optional[float] = None
+    sharpe_hist: Optional[float] = None
+    ranking_score: Optional[float] = None
+    seleccion: str = "predefinida"
+
+
+class RiskBudgetSchema(BaseModel):
+    var_95_max: float
+    vol_anual_max: float
+    max_peso_activo: float
+
+
+class RiskProfileResponse(BaseModel):
+    """Resultado completo del análisis de perfil de riesgo."""
+    perfil: str
+    score: float
+    score_raw: int
+    descripcion_perfil: str
+    dimensiones: List[DimensionScoreSchema]
+    sectores_recomendados: List[SectorRecomendadoSchema]
+    tickers_recomendados: List[str]
+    pesos_sugeridos: List[float]
+    risk_budget: RiskBudgetSchema
+    advertencia: str
+    seleccion_dinamica: bool = False
+    periodo_analisis: str = ""
+    universo_evaluado: int = 0
+
+
+class RiskPortfolioRequest(BaseModel):
+    """Solicita el análisis de portafolio basado en un perfil de riesgo previamente calculado."""
+    perfil: str = Field(
+        ...,
+        description="Perfil de riesgo: muy_conservador | conservador | moderado | agresivo | muy_agresivo",
+    )
+    forzar_actualizacion: bool = Field(default=False)
+    tickers: Optional[List[str]] = Field(
+        default=None,
+        description="Tickers a analizar. Si se omite, usa los predefinidos del perfil.",
+    )
+    pesos: Optional[List[float]] = Field(
+        default=None,
+        description="Pesos correspondientes a tickers. Si se omite, usa los predefinidos.",
+    )

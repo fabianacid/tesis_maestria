@@ -50,8 +50,9 @@ Este proyecto implementa un sistema multiagente que integra:
 - **Predicción de dirección de precios** con ensemble de 4 modelos base + 3 opcionales de clasificación ML
 - **Análisis de sentimiento** con 4 métodos NLP
 - **Datos fundamentales y filings SEC**: ratios financieros (P/E, ROE, márgenes, crecimiento) y acceso a la API pública de SEC EDGAR para 10-K, 10-Q y 8-K
+- **Perfil de riesgo del inversor**: cuestionario de 6 dimensiones (edad, horizonte, ingresos, tolerancia a pérdidas, experiencia, objetivo) → 5 perfiles (muy conservador … muy agresivo), selección dinámica de ETFs desde universo de 22 activos con filtro de correlación y piso defensivo
 - **Análisis de portafolio**: métricas media-varianza, optimización de Markowitz (máximo Sharpe, mínima varianza), **Hierarchical Risk Parity (HRP)** (López de Prado, 2016), frontera eficiente y alertas de concentración/correlación
-- **Backtesting walk-forward**: evaluación histórica de señales ML con Backtrader (reentrenamiento trimestral, métricas CAGR/Sharpe/Sortino/Calmar vs dos benchmarks: Buy & Hold y SMA Crossover 20/50)
+- **Backtesting walk-forward**: evaluación histórica de señales ML con Backtrader (activo individual) y simulación histórica de portafolio con rebalanceo periódico, costos de transacción y recálculo walk-forward de pesos (Máx Sharpe y HRP)
 - **Explicabilidad ML**: SHAP values (Lundberg & Lee, 2017), MDI (Mean Decrease Impurity) y MDA (Mean Decrease Accuracy) — tres métricas de importancia de features sobre el mismo Random Forest
 - **Generación de recomendaciones** explicables multi-factor
 - **Sistema de alertas** con umbrales configurables
@@ -76,6 +77,7 @@ graph TB
     Router1 --> SECA[ SECAgent<br/>Fundamentales + Filings]
     Router1 --> PA[ PortfolioAgent<br/>Portafolio + Markowitz]
     Router1 --> BA[ BacktestAgent<br/>Walk-Forward ML]
+    Router1 --> RPA[ RiskProfileAgent<br/>Perfil de Riesgo]
 
     MA --> YF[ Yahoo Finance]
     SA --> YF
@@ -99,6 +101,7 @@ graph TB
     style SECA fill:#e8eaf6
     style PA fill:#fce4ec
     style BA fill:#f0f4c3
+    style RPA fill:#e0f7fa
 ```
 
 ### Flujo de Análisis Completo
@@ -334,8 +337,18 @@ Flujo adicional para análisis de portafolio:
    - **Alertas de portafolio**: concentración >40%, correlación >0.85, VaR <-20%, Sharpe negativo
    - Endpoint: `POST /portfolio/analyze`
 
+9. **RiskProfileAgent**
+   - Cuestionario de 6 dimensiones con scoring ponderado → 5 perfiles (muy conservador, conservador, moderado, agresivo, muy agresivo)
+   - **Selección dinámica de ETFs**: evalúa universo de 22 ETFs con datos históricos reales (yfinance), score combinado `(1-agresividad)·Sharpe_norm + agresividad·Retorno_norm`
+   - **Filtro de correlación greedy**: umbral configurable por perfil (0.75–0.95); descarta ETFs altamente correlacionados con los ya seleccionados (evita pares como IWM/MDY con correlación 0.95)
+   - **Piso defensivo**: garantiza al menos un ETF defensivo (BND/TLT/IEF/LQD/GLD/XLU/XLP) para perfiles no agresivos
+   - **Presupuesto de riesgo por perfil**: VaR máximo tolerado, volatilidad anual objetivo y peso máximo por activo (`max_peso_activo`)
+   - Integración con PortfolioAgent usando restricciones del perfil (peso máximo propagado a Markowitz y HRP)
+   - Endpoints: `POST /risk/profile` (evaluar cuestionario) · `POST /risk/portfolio` (análisis optimizado para el perfil)
+
 8. **BacktestAgent**
-   - Evaluación histórica walk-forward de señales ML usando **Backtrader**
+   - Evaluación histórica walk-forward de señales ML usando **Backtrader** (modo activo individual)
+   - Backtesting de portafolio: simulación histórica con deriva de pesos de mercado (sin rebalanceo fijo), rebalanceo periódico configurable (mensual/trimestral/semestral/anual), costos de transacción (compra inicial + cada rebalanceo), recálculo walk-forward de pesos Máx Sharpe y HRP usando solo datos anteriores al punto de evaluación
    - **Protocolo**: ventana de entrenamiento 504 días (TRAIN_WINDOW), paso trimestral 63 días (STEP)
    - **MLSignalStrategy**: compra si `prob_subida ≥ 0.54`; venta si `≤ 0.46`; comisión 0.1%
    - **Dos benchmarks comparativos** (misma comisión 0.1%, mismo capital inicial):
@@ -383,7 +396,8 @@ proyecto_final/
 │   │   ├── predict_router.py       # Endpoints de predicción (activo individual)
 │   │   ├── alerts_router.py        # Endpoints de alertas
 │   │   ├── portfolio_router.py     # Endpoints de análisis de portafolio
-│   │   └── backtest_router.py      # Endpoints de backtesting walk-forward
+│   │   ├── backtest_router.py      # Endpoints de backtesting walk-forward
+│   │   └── risk_router.py          # Endpoints de perfil de riesgo (/risk/profile, /risk/portfolio)
 │   └── agents/
 │       ├── market_agent.py         # Datos de mercado e indicadores técnicos
 │       ├── model_agent.py          # Predicción ML (ensemble)
@@ -392,7 +406,8 @@ proyecto_final/
 │       ├── alert_agent.py          # Evaluación de umbrales y alertas
 │       ├── sec_agent.py            # Fundamentales (yfinance) + filings SEC EDGAR
 │       ├── portfolio_agent.py      # Análisis y optimización de portafolio
-│       └── backtest_agent.py       # Backtesting walk-forward con Backtrader
+│       ├── backtest_agent.py       # Backtesting walk-forward con Backtrader
+│       └── risk_profile_agent.py   # Cuestionario de perfil de riesgo + selección dinámica de ETFs
 ├── dashboard/
 │   └── app.py               # Dashboard Streamlit
 ├── docs/
@@ -662,6 +677,29 @@ El dashboard de Streamlit proporciona una interfaz visual completa para interact
 - Expander con filings recientes de SEC EDGAR (10-K, 10-Q, 8-K) con badges de color por tipo
 - Mensaje informativo para activos no-US sin CIK registrado en EDGAR
 
+###  Perfil de Riesgo (tab 1 — nueva)
+
+**Cuestionario de 6 dimensiones:**
+- Edad, horizonte de inversión, estabilidad de ingresos, tolerancia a pérdidas, experiencia inversora y objetivo financiero
+- Scoring ponderado → 5 perfiles: muy conservador / conservador / moderado / agresivo / muy agresivo
+- Desglose visual por dimensión con interpretación de cada respuesta
+
+**Selección dinámica de ETFs:**
+- Evalúa universo de 22 ETFs con datos históricos reales (yfinance)
+- Score combinado: `(1-agresividad)·Sharpe_norm + agresividad·Retorno_norm`
+- Filtro de correlación greedy (umbral por perfil): descarta ETFs redundantes
+- Piso defensivo: garantiza al menos un ETF defensivo (BND/TLT/GLD/XLU/XLP) para perfiles conservadores/moderados
+- Muestra período de análisis, universo evaluado y señal de selección dinámica/predefinida por ETF
+
+**Análisis del portafolio del perfil:**
+- Métricas del portafolio en tiempo real (Sharpe, VaR, volatilidad, retorno)
+- Semáforo de riesgo: verde/amarillo/rojo según VaR vs límite del perfil
+- Gráfico comparativo: pesos del perfil vs Máx Sharpe vs HRP
+- Tabla de acciones de rebalanceo separada por estrategia (Máx Sharpe y HRP)
+- Explicación del Sharpe ML (predicciones corto plazo) vs Sharpe histórico (HRP)
+- Señales del pipeline multiagente por ETF con expander explicativo de cada columna
+- Botón de integración: transfiere ETFs y pesos a la pestaña **Portafolio** para análisis técnico adicional
+
 ###  Portafolio (tab 3)
 
 **Formulario de portafolio:**
@@ -684,7 +722,10 @@ El dashboard de Streamlit proporciona una interfaz visual completa para interact
 - Mapa de calor de correlaciones (heatmap)
 - Gráficos de barras comparativos: pesos actuales vs Máximo Sharpe (azul) vs Mínima Varianza (verde) vs **HRP** (ámbar)
 - Frontera eficiente (15 puntos) con marcadores para portafolio actual, máx Sharpe, mín varianza y **punto HRP**
-- Tabla comparativa de métricas entre los cuatro portafolios (incluye columna HRP %)
+- Tabla comparativa con columnas separadas `Δ Max Sharpe` y `Δ HRP` (sin mezclar estrategias)
+- Conclusión independiente por estrategia: acciones Máx Sharpe y acciones HRP en bloques separados con indicación del perfil adecuado para cada una
+- Explicación del Sharpe ML vs histórico cuando el modelo supera al óptimo histórico
+- Banner de **perfil estimado** basado en VaR 95% y volatilidad, con nota sobre qué complementa la pestaña Perfil de Riesgo
 
 ###  Centro de Alertas
 ```
@@ -1432,7 +1473,7 @@ test_results/graficos/
 | Validación estadística | Test de superioridad predictiva | Diebold-Mariano MDM + Brier score + Sign test + análisis por régimen (5 tickers, 2 y 4 años) | ✅ |
 | Tiempo respuesta | < 5s | 4.65s promedio (config. final) | ✅ |
 | 10+ usuarios concurrentes | ≥ 10 | 10 usuarios @ 100% (25 en config. inicial) | ✅ |
-| Dashboard funcional | Implementado | Streamlit (4 pestañas) | ✅ |
+| Dashboard funcional | Implementado | Streamlit (5 pestañas: Perfil de Riesgo · Análisis de Activos · Portafolio · Backtesting · Historial de Alertas) | ✅ |
 
 ####  Archivos de Resultados
 

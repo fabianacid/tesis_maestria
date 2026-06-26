@@ -145,6 +145,7 @@ class PortfolioAgent:
         tickers: List[str],
         weights: List[float],
         forzar_actualizacion: bool = False,
+        max_weight: float = 0.65,
     ) -> PortfolioResult:
         """
         Analiza un portafolio completo.
@@ -182,7 +183,7 @@ class PortfolioAgent:
             a.weight = weights_dict[a.ticker] / total_ok
 
         metricas = self._calcular_metricas(activos)
-        optimizacion = self._optimizar_markowitz(activos)
+        optimizacion = self._optimizar_markowitz(activos, max_weight=max_weight)
         recomendacion = self._generar_recomendacion(activos, metricas, optimizacion)
         alertas = self._detectar_alertas(activos, metricas)
 
@@ -396,7 +397,7 @@ class PortfolioAgent:
     # Optimización de Markowitz
     # ------------------------------------------------------------------
 
-    def _optimizar_markowitz(self, activos: List[AssetAnalysis]) -> PortfolioOptimization:
+    def _optimizar_markowitz(self, activos: List[AssetAnalysis], max_weight: float = 0.65) -> PortfolioOptimization:
         tickers = [a.ticker for a in activos]
         n = len(tickers)
         equal_w = {t: round(1.0 / n, 4) for t in tickers}
@@ -423,7 +424,7 @@ class PortfolioAgent:
 
             rf = RISK_FREE_RATE_PCT
             constraints = [{"type": "eq", "fun": lambda w: np.sum(w) - 1.0}]
-            bounds = [(0.01, 0.65)] * n
+            bounds = [(0.01, max(0.01, min(max_weight, 0.99)))] * n
             w0 = np.ones(n) / n
 
             def port_ret(w): return float(w @ mu)
@@ -479,7 +480,7 @@ class PortfolioAgent:
             hrp_ret = hrp_vol = hrp_sharpe_val = 0.0
             if returns_mat is not None and returns_mat.shape[1] == n:
                 try:
-                    hrp_w_dict = self._hrp_weights(returns_mat, tickers)
+                    hrp_w_dict = self._hrp_weights(returns_mat, tickers, max_weight=max_weight)
                     w_hrp = np.array([hrp_w_dict[t] for t in tickers])
                     hrp_ret  = round(port_ret(w_hrp), 2)
                     hrp_vol  = round(port_vol(w_hrp), 2)
@@ -521,7 +522,7 @@ class PortfolioAgent:
     # ------------------------------------------------------------------
 
     def _hrp_weights(
-        self, returns_mat: "np.ndarray", tickers: List[str]
+        self, returns_mat: "np.ndarray", tickers: List[str], max_weight: float = 0.65
     ) -> Dict[str, float]:
         """
         Hierarchical Risk Parity (López de Prado, 2016).
@@ -572,7 +573,26 @@ class PortfolioAgent:
 
         _bisect(list(order))
         weights /= weights.sum()
-        return {tickers[i]: round(float(weights[i]), 4) for i in range(n)}
+        raw = {tickers[i]: float(weights[i]) for i in range(n)}
+
+        # Aplicar cota máxima por activo con redistribución iterativa
+        w = dict(raw)
+        cap = max(0.01, min(max_weight, 0.99))
+        for _ in range(30):
+            over = {t: v - cap for t, v in w.items() if v > cap + 1e-6}
+            if not over:
+                break
+            excess = sum(over.values())
+            for t in over:
+                w[t] = cap
+            free = {t: v for t, v in w.items() if v < cap - 1e-6}
+            total_free = sum(free.values())
+            if total_free <= 0:
+                break
+            for t in free:
+                w[t] += excess * (free[t] / total_free)
+        total = sum(w.values())
+        return {t: round(v / total, 4) for t, v in w.items()}
 
     def _generar_recomendacion(
         self,

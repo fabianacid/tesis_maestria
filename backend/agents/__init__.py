@@ -10,6 +10,7 @@ Agentes especializados:
 - SECAgent: Datos fundamentales y filings SEC EDGAR
 - PortfolioAgent: Análisis y optimización de portafolio
 - BacktestAgent: Backtesting walk-forward con Backtrader
+- RiskProfileAgent: Cuantificación de perfil de riesgo del inversor
 """
 from .market_agent import MarketAgent, MarketData
 from .model_agent import ModelAgent, PredictionResult
@@ -19,14 +20,17 @@ from .alert_agent import AlertAgent, AlertResult, NivelAlerta
 from .sec_agent import SECAgent, SECData, FinancialRatios, BalanceSummary, SECFiling
 from .portfolio_agent import PortfolioAgent, PortfolioResult, PortfolioMetrics, PortfolioOptimization, AssetAnalysis
 from .backtest_agent import BacktestAgent, BacktestResult, BacktestMetrics
+from .risk_profile_agent import RiskProfileAgent, RiskProfileResult, PerfilRiesgo
 
 __all__ = [
     "MarketAgent", "ModelAgent", "SentimentAgent",
     "RecommendationAgent", "AlertAgent",
     "SECAgent", "PortfolioAgent", "BacktestAgent",
+    "RiskProfileAgent",
     "MarketData", "PredictionResult", "SentimentResult",
     "RecommendationResult", "AlertResult", "NivelAlerta",
     "SECData", "FinancialRatios", "BalanceSummary", "SECFiling",
     "PortfolioResult", "PortfolioMetrics", "PortfolioOptimization", "AssetAnalysis",
     "BacktestResult", "BacktestMetrics",
+    "RiskProfileResult", "PerfilRiesgo",
 ]
