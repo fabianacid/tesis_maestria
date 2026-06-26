@@ -1934,7 +1934,7 @@ def render_portfolio_tab():
             xaxis_title="", yaxis_title="",
         )
         st.plotly_chart(fig_corr, use_container_width=True)
-        st.caption("Verde = correlación negativa (mayor diversificación) | Rojo = correlación positiva (menor diversificación)")
+        st.caption("Rojo = correlación negativa (mayor diversificación) | Verde = correlación positiva (menor diversificación)")
 
     st.markdown("---")
 
@@ -2012,7 +2012,11 @@ def render_portfolio_tab():
                     yaxis_title="Peso (%)", showlegend=False,
                 )
                 st.plotly_chart(fig_hrp, use_container_width=True)
-                st.caption("HRP usa clustering jerárquico — no requiere invertir la matriz de covarianza (López de Prado, 2016).")
+                st.caption(
+                    "HRP usa clustering jerárquico — no requiere invertir la matriz de covarianza (López de Prado, 2016). "
+                    "Estos pesos son **sin restricciones de perfil**: la pestaña Perfil de Riesgo aplica un límite máximo "
+                    "por activo (ej. 40%) según tu tolerancia al riesgo, por lo que los pesos allí pueden diferir."
+                )
             else:
                 st.info("HRP no disponible (datos insuficientes).")
 
@@ -2430,8 +2434,21 @@ def render_risk_profile_tab():
     else:
         st.info("Selección **predefinida** por conocimiento experto (sin datos históricos).")
 
-    st.markdown("#### Sectores recomendados para tu perfil")
+    st.markdown("#### Activos recomendados para tu perfil")
     sectores = result["sectores_recomendados"]
+
+    def _tipo_label(s):
+        return "ETF" if s.get("tipo", "ETF") == "ETF" else "Acción"
+
+    def _señal_label(v):
+        if v is None:
+            return "-"
+        if v >= 0.60:
+            return "🟢 Alta"
+        if v >= 0.40:
+            return "🟡 Neutra"
+        return "🔴 Baja"
+
     fig_pie = go.Figure(go.Pie(
         labels=[f"{s['sector']} ({s['etf']})" for s in sectores],
         values=[s["peso_target"] for s in sectores],
@@ -2443,9 +2460,11 @@ def render_risk_profile_tab():
     st.plotly_chart(fig_pie, use_container_width=True)
 
     if es_dinamica and sectores[0].get("sharpe_hist") is not None:
+        tiene_señales = any(s.get("señal_sentimiento") is not None for s in sectores)
         tbl_data = {
-            "ETF": [s["etf"] for s in sectores],
-            "Sector": [s["sector"] for s in sectores],
+            "Ticker": [s["etf"] for s in sectores],
+            "Tipo": [_tipo_label(s) for s in sectores],
+            "Sector / Empresa": [s["sector"] for s in sectores],
             "Peso (vol. inv.)": [f"{s['peso_target']*100:.1f}%" for s in sectores],
             f"Retorno {periodo}": [f"{s['retorno_hist']:+.1f}%" if s.get('retorno_hist') is not None else "-" for s in sectores],
             "Volatilidad": [f"{s['volatilidad_hist']:.1f}%" if s.get('volatilidad_hist') is not None else "-" for s in sectores],
@@ -2453,15 +2472,32 @@ def render_risk_profile_tab():
             "Score perfil": [f"{s['ranking_score']:.3f}" if s.get('ranking_score') is not None else "-" for s in sectores],
             "Descripción": [s["descripcion"] for s in sectores],
         }
-        st.caption("Peso asignado por volatilidad inversa — menor volatilidad recibe mayor peso.")
+        if tiene_señales:
+            tbl_data["Sentimiento"] = [_señal_label(s.get("señal_sentimiento")) for s in sectores]
+            tbl_data["Predicción"]  = [_señal_label(s.get("señal_prediccion"))  for s in sectores]
+            tbl_data["Fund. SEC"]   = [
+                _señal_label(s.get("señal_sec")) if s.get("tipo") == "Acción" else "-"
+                for s in sectores
+            ]
     else:
         tbl_data = {
-            "ETF": [s["etf"] for s in sectores],
-            "Sector": [s["sector"] for s in sectores],
+            "Ticker": [s["etf"] for s in sectores],
+            "Tipo": [_tipo_label(s) for s in sectores],
+            "Sector / Empresa": [s["sector"] for s in sectores],
             "Peso sugerido": [f"{s['peso_target']*100:.0f}%" for s in sectores],
             "Descripción": [s["descripcion"] for s in sectores],
         }
     st.dataframe(pd.DataFrame(tbl_data), use_container_width=True, hide_index=True)
+    if es_dinamica and sectores[0].get("sharpe_hist") is not None:
+        st.caption("Peso asignado por volatilidad inversa — menor volatilidad recibe mayor peso.")
+        if tiene_señales:
+            st.caption(
+                "**Señales multiagente** integradas en el score: "
+                "Sentimiento (noticias recientes · SentimentAgent), "
+                "Predicción (momentum de precio), "
+                "Fund. SEC (fundamentales EDGAR · solo acciones individuales). "
+                "🟢 ≥ 0.60 · 🟡 0.40–0.59 · 🔴 < 0.40 (escala 0–1)."
+            )
 
     # ── Portafolio optimizado ─────────────────────────────────────────────
     st.markdown("---")
@@ -2555,6 +2591,22 @@ def render_risk_profile_tab():
 
         # Comparar portafolios optimizados
         if opt.get("disponible"):
+            # Determinar estrategia recomendada para resaltarla en la tabla
+            _REC_TABLA = {
+                "muy_conservador": "hrp", "conservador": "hrp", "moderado": "hrp",
+                "agresivo": "max_sharpe", "muy_agresivo": "max_sharpe",
+            }
+            _perfil_actual = st.session_state.get("risk_result", {}).get("perfil", "moderado")
+            _est_rec_tabla = _REC_TABLA.get(_perfil_actual, "hrp")
+
+            _DESC = {
+                "Pesos del perfil":  "Asignación base por volatilidad inversa (punto de partida)",
+                "Máximo Sharpe":     "Maximiza el retorno por unidad de riesgo · puede concentrar mucho en pocos activos",
+                "Mínima Varianza":   "Minimiza la volatilidad total · retorno más bajo pero más estable",
+                "HRP":               "Diversificación jerárquica sin sobreconcentrar · robusto ante errores de estimación",
+            }
+            _rec_label = "HRP" if _est_rec_tabla == "hrp" else "Máximo Sharpe"
+
             st.markdown("**Comparación de estrategias de optimización**")
             comp_data = {
                 "Estrategia": ["Pesos del perfil", "Máximo Sharpe", "Mínima Varianza"],
@@ -2571,7 +2623,7 @@ def render_risk_profile_tab():
                 "Sharpe": [
                     m.get("sharpe_ratio", 0),
                     opt.get("max_sharpe_sharpe", 0),
-                    round(opt.get("min_variance_return", 0) / max(opt.get("min_variance_volatility", 1), 0.01) - 0.045, 3),
+                    round((opt.get("min_variance_return", 0) - 4.5) / max(opt.get("min_variance_volatility", 1), 0.01), 3),
                 ],
             }
             if opt.get("hrp_weights"):
@@ -2580,6 +2632,12 @@ def render_risk_profile_tab():
                 comp_data["Volatilidad (%)"].append(opt.get("hrp_volatility", 0))
                 comp_data["Sharpe"].append(opt.get("hrp_sharpe", 0))
 
+            # Marcar la estrategia recomendada
+            comp_data["Estrategia"] = [
+                f"{e} ← recomendada" if e == _rec_label else e
+                for e in comp_data["Estrategia"]
+            ]
+
             st.dataframe(
                 pd.DataFrame(comp_data).style.highlight_max(subset=["Sharpe"], color="#d4edda").format(
                     {"Retorno (%)": "{:.2f}", "Volatilidad (%)": "{:.2f}", "Sharpe": "{:.3f}"}
@@ -2587,6 +2645,15 @@ def render_risk_profile_tab():
                 use_container_width=True,
                 hide_index=True,
             )
+            st.caption(
+                "Los valores de esta tabla usan los retornos históricos del período analizado (tasa libre de riesgo: 4.5%). "
+                "La pestaña **Portafolio** puede mostrar valores levemente distintos si los activos se cargaron "
+                "en un momento diferente — ambas consultas son independientes al servidor."
+            )
+            with st.expander("¿Qué significa cada estrategia?"):
+                for nombre, desc in _DESC.items():
+                    rec = " ← **recomendada para tu perfil**" if nombre == _rec_label else ""
+                    st.markdown(f"- **{nombre}**: {desc}{rec}")
 
             # ── Comparación visual: pesos actuales vs Máximo Sharpe vs HRP ──
             w_sharpe = opt.get("max_sharpe_weights", {})
@@ -2751,17 +2818,17 @@ def render_main_dashboard():
     <div style='text-align: center; padding: 20px 0; margin-bottom: 30px;'>
         <div style='display: inline-block; background: linear-gradient(135deg, #87ceeb 0%, #4db8e8 100%);
                     padding: 15px 30px; border-radius: 15px; box-shadow: 0 4px 15px rgba(77, 184, 232, 0.4);'>
-            <h1 style='color: white; margin: 0; font-size: 2.5rem; font-weight: 700; letter-spacing: 2px;'>
-                Sistema Multi Agente
+            <h1 style='color: white; margin: 0; font-size: 2.0rem; font-weight: 700; letter-spacing: 1px;'>
+                Sistema Multiagente de Análisis y Optimización de Portafolios Financieros
             </h1>
             <p style='color: #f0f0f0; margin: 5px 0 0 0; font-size: 0.95rem; letter-spacing: 1px;'>
-                Seguimiento y alerta de activos financieros.
+                Plataforma de análisis para inversores minoristas
             </p>
         </div>
     </div>
     """, unsafe_allow_html=True)
 
-    tab1, tab2, tab3, tab4, tab5 = st.tabs(["Perfil de Riesgo", "Análisis de Activos", "Portafolio", "Backtesting", "Historial de Alertas"])
+    tab1, tab3, tab4, tab2, tab5 = st.tabs(["Perfil de Riesgo", "Portafolio", "Backtesting", "Análisis de Activos", "Historial de Alertas"])
 
     with tab1:
         render_risk_profile_tab()

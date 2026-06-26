@@ -152,8 +152,12 @@ async def evaluar_perfil(body: RiskProfileRequest):
                 "retorno_hist": s.retorno_hist,
                 "volatilidad_hist": s.volatilidad_hist,
                 "sharpe_hist": s.sharpe_hist,
-                "ranking_score": s.ranking_score,
-                "seleccion": s.seleccion,
+                "ranking_score":      s.ranking_score,
+                "seleccion":          s.seleccion,
+                "tipo":               s.tipo,
+                "señal_sentimiento":  s.señal_sentimiento,
+                "señal_prediccion":   s.señal_prediccion,
+                "señal_sec":          s.señal_sec,
             }
             for s in result.sectores_recomendados
         ],

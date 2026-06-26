@@ -427,6 +427,10 @@ class SectorRecomendadoSchema(BaseModel):
     sharpe_hist: Optional[float] = None
     ranking_score: Optional[float] = None
     seleccion: str = "predefinida"
+    tipo: str = "ETF"
+    señal_sentimiento: Optional[float] = None
+    señal_prediccion:  Optional[float] = None
+    señal_sec:         Optional[float] = None
 
 
 class RiskBudgetSchema(BaseModel):

@@ -24,7 +24,9 @@ Salida:
   - Restricciones de cartera para integrar con PortfolioAgent
   - Presupuesto de VaR máximo tolerado
 """
+import concurrent.futures
 import logging
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
@@ -157,7 +159,7 @@ _MAX_SCORE_RAW = 24  # 6 dimensiones × 4 pts
 class SectorRecomendado:
     sector: str
     descripcion: str
-    etf: str                              # ticker del ETF representativo
+    etf: str                              # ticker del activo representativo
     peso_target: float                    # 0-1, suma = 1 para el perfil
     # Métricas históricas (pobladas solo en selección dinámica)
     retorno_hist: Optional[float] = None  # % anualizado (lookback)
@@ -165,6 +167,10 @@ class SectorRecomendado:
     sharpe_hist: Optional[float] = None
     ranking_score: Optional[float] = None
     seleccion: str = "predefinida"        # "dinamica" | "predefinida"
+    tipo: str = "ETF"                     # "ETF" | "Acción"
+    señal_sentimiento: Optional[float] = None  # 0-1 (SentimentAgent)
+    señal_prediccion:  Optional[float] = None  # 0-1 (momentum proxy)
+    señal_sec:         Optional[float] = None  # 0-1 solo acciones (SECAgent)
 
 
 _SECTORES_POR_PERFIL: Dict[str, List[SectorRecomendado]] = {
@@ -219,32 +225,57 @@ _RISK_BUDGET: Dict[str, Dict] = {
     PerfilRiesgo.MUY_AGRESIVO:    {"var_95_max": 40.0, "vol_anual_max": 45.0, "max_peso_activo": 0.65},
 }
 
-# Universo de ETFs candidatos para selección dinámica
-# (ticker, nombre_sector, descripcion)
-UNIVERSO_ETF: List[Tuple[str, str, str]] = [
-    ("TLT", "Bonos EEUU largo plazo",       "Bonos del Tesoro EEUU +20 años, alta duración"),
-    ("BND", "Bonos diversificados",          "Mercado total de renta fija EEUU"),
-    ("IEF", "Bonos EEUU mediano plazo",      "Bonos del Tesoro EEUU 7-10 años"),
-    ("LQD", "Bonos corporativos IG",         "Bonos corporativos grado inversión EEUU"),
-    ("GLD", "Oro",                           "Commodity refugio, baja correlación con equity"),
-    ("XLU", "Utilities",                     "Electricidad y servicios regulados, defensivo"),
-    ("XLP", "Consumer Staples",              "Bienes de consumo básico, demanda inelástica"),
-    ("XLV", "Healthcare",                    "Salud y farmacéuticas, sector defensivo"),
-    ("VNQ", "Real Estate (REITs)",           "Inmuebles diversificados, generan dividendos"),
-    ("XLF", "Financials",                    "Bancos y seguros"),
-    ("XLI", "Industrials",                   "Manufactura e infraestructura"),
-    ("XLC", "Communications",               "Telecomunicaciones y medios digitales"),
-    ("XLK", "Technology",                    "Tecnología e innovación, alto crecimiento"),
-    ("XLY", "Consumer Discretionary",        "Consumo discrecional, cíclico"),
-    ("XLE", "Energy",                        "Petróleo, gas y energías, alta ciclicidad"),
-    ("XLB", "Materials",                     "Minería y materiales básicos"),
-    ("EFA", "International DM",              "Mercados desarrollados fuera de EEUU"),
-    ("VGK", "Europa",                        "Acciones europeas desarrolladas"),
-    ("EEM", "Emerging Markets",              "Mercados emergentes, alta volatilidad"),
-    ("IWM", "Small Cap EEUU",               "Empresas pequeñas EEUU, mayor potencial y riesgo"),
-    ("MDY", "Mid Cap EEUU",                 "Empresas medianas EEUU"),
-    ("QQQ", "Nasdaq 100",                   "Las 100 mayores empresas no financieras del Nasdaq"),
+# Universo de activos candidatos para selección dinámica
+# (ticker, nombre_sector, descripcion, tipo)
+UNIVERSO_ACTIVOS: List[Tuple[str, str, str, str]] = [
+    # ── ETFs de renta fija (defensivos) ─────────────────────────────────
+    ("TLT", "Bonos EEUU largo plazo",       "Bonos del Tesoro EEUU +20 años, alta duración",          "ETF"),
+    ("BND", "Bonos diversificados",          "Mercado total de renta fija EEUU",                        "ETF"),
+    ("IEF", "Bonos EEUU mediano plazo",      "Bonos del Tesoro EEUU 7-10 años",                         "ETF"),
+    ("LQD", "Bonos corporativos IG",         "Bonos corporativos grado inversión EEUU",                 "ETF"),
+    # ── ETFs sectoriales defensivos ─────────────────────────────────────
+    ("GLD", "Oro",                           "Commodity refugio, baja correlación con equity",          "ETF"),
+    ("XLU", "Utilities",                     "Electricidad y servicios regulados, defensivo",           "ETF"),
+    ("XLP", "Consumer Staples",              "Bienes de consumo básico, demanda inelástica",            "ETF"),
+    ("XLV", "Healthcare",                    "Salud y farmacéuticas, sector defensivo",                 "ETF"),
+    ("VNQ", "Real Estate (REITs)",           "Inmuebles diversificados, generan dividendos",            "ETF"),
+    # ── ETFs sectoriales moderados/agresivos ────────────────────────────
+    ("XLF", "Financials",                    "Bancos y seguros",                                        "ETF"),
+    ("XLI", "Industrials",                   "Manufactura e infraestructura",                           "ETF"),
+    ("XLC", "Communications",                "Telecomunicaciones y medios digitales",                   "ETF"),
+    ("XLK", "Technology",                    "Tecnología e innovación, alto crecimiento",               "ETF"),
+    ("XLY", "Consumer Discretionary",        "Consumo discrecional, cíclico",                           "ETF"),
+    ("XLE", "Energy",                        "Petróleo, gas y energías, alta ciclicidad",               "ETF"),
+    ("XLB", "Materials",                     "Minería y materiales básicos",                            "ETF"),
+    ("EFA", "International DM",              "Mercados desarrollados fuera de EEUU",                    "ETF"),
+    ("VGK", "Europa",                        "Acciones europeas desarrolladas",                         "ETF"),
+    ("EEM", "Emerging Markets",              "Mercados emergentes, alta volatilidad",                   "ETF"),
+    ("IWM", "Small Cap EEUU",                "Empresas pequeñas EEUU, mayor potencial y riesgo",        "ETF"),
+    ("MDY", "Mid Cap EEUU",                  "Empresas medianas EEUU",                                  "ETF"),
+    ("QQQ", "Nasdaq 100",                    "Las 100 mayores empresas no financieras del Nasdaq",      "ETF"),
+    # ── Acciones individuales defensivas (baja volatilidad) ─────────────
+    ("KO",   "Coca-Cola",                    "Bebidas globales, dividendo estable, consumo defensivo",  "Acción"),
+    ("PG",   "Procter & Gamble",             "Consumo básico global, márgenes estables, dividendo",     "Acción"),
+    ("JNJ",  "Johnson & Johnson",            "Salud diversificada, farmacéutica y dispositivos",        "Acción"),
+    ("WMT",  "Walmart",                      "Retail defensivo, ingresos estables en ciclos recesivos", "Acción"),
+    ("MCD",  "McDonald's",                   "Franquicias globales, flujo de caja predecible",          "Acción"),
+    ("VZ",   "Verizon",                      "Telecomunicaciones EEUU, alto dividendo, defensivo",      "Acción"),
+    # ── Acciones individuales moderadas ─────────────────────────────────
+    ("MSFT", "Microsoft",                    "Software cloud líder, crecimiento estructural sólido",    "Acción"),
+    ("AAPL", "Apple",                        "Ecosistema tech y servicios, flujo de caja robusto",      "Acción"),
+    ("JPM",  "JPMorgan Chase",               "Banco diversificado líder EEUU, dividendo creciente",     "Acción"),
+    ("V",    "Visa",                         "Pagos digitales globales, altos márgenes operativos",     "Acción"),
+    ("UNH",  "UnitedHealth",                 "Salud gestionada EEUU, crecimiento defensivo",            "Acción"),
+    # ── Acciones individuales de alto crecimiento (agresivas) ───────────
+    ("GOOGL","Alphabet (Google)",            "Publicidad digital y cloud, negocio altamente rentable",  "Acción"),
+    ("AMZN", "Amazon",                       "E-commerce y AWS cloud, liderazgo en múltiples mercados", "Acción"),
+    ("NVDA", "NVIDIA",                       "Chips para IA y data centers, crecimiento excepcional",   "Acción"),
+    ("META", "Meta Platforms",               "Redes sociales y realidad aumentada, alta generación FCF","Acción"),
+    ("TSLA", "Tesla",                        "Vehículos eléctricos y energía, alta beta y volatilidad", "Acción"),
 ]
+
+# Alias para compatibilidad
+UNIVERSO_ETF = UNIVERSO_ACTIVOS
 
 # Factor de agresividad por perfil: 0 = puramente Sharpe, 1 = puramente retorno
 _AGRESIVIDAD: Dict[str, float] = {
@@ -433,8 +464,8 @@ class RiskProfileAgent:
         rf        = 4.5   # tasa libre de riesgo %
         TRADING_DAYS = 252
 
-        tickers_universo = [e[0] for e in UNIVERSO_ETF]
-        etf_meta = {e[0]: {"sector": e[1], "descripcion": e[2]} for e in UNIVERSO_ETF}
+        tickers_universo = [e[0] for e in UNIVERSO_ACTIVOS]
+        etf_meta = {e[0]: {"sector": e[1], "descripcion": e[2], "tipo": e[3]} for e in UNIVERSO_ACTIVOS}
 
         # ── Descargar datos ──────────────────────────────────────────────
         try:
@@ -492,16 +523,32 @@ class RiskProfileAgent:
             logger.warning("Muy pocos candidatos tras filtro de vol — usando predefinida")
             return _SECTORES_POR_PERFIL[perfil], False, universo_evaluado
 
-        # ── Score ajustado al perfil ─────────────────────────────────────
+        # ── Señales de agentes (sentimiento, predicción momentum, SEC) ──
+        try:
+            agente_scores = self._obtener_señales_agentes(candidatos, closes, etf_meta)
+        except Exception as e:
+            logger.warning(f"_obtener_señales_agentes falló: {e}")
+            agente_scores = {}
+
+        # ── Score integrado: 60% histórico + 40% agentes ────────────────
+        W_HIST  = 0.60
+        W_AGENT = 0.40
+
         sharpes  = [m["sharpe"] for m in candidatos]
         retornos = [m["ret_a"]  for m in candidatos]
         s_min, s_rng = min(sharpes),  max(sharpes)  - min(sharpes)  or 1.0
         r_min, r_rng = min(retornos), max(retornos) - min(retornos) or 1.0
 
         for m in candidatos:
-            s_norm = (m["sharpe"] - s_min) / s_rng
-            r_norm = (m["ret_a"]  - r_min) / r_rng
-            m["score"] = (1 - agr) * s_norm + agr * r_norm
+            s_norm      = (m["sharpe"] - s_min) / s_rng
+            r_norm      = (m["ret_a"]  - r_min) / r_rng
+            hist_score  = (1 - agr) * s_norm + agr * r_norm
+            agent_data  = agente_scores.get(m["ticker"], {})
+            agent_score = agent_data.get("combined", hist_score)
+            m["score"]          = W_HIST * hist_score + W_AGENT * agent_score
+            m["sentim_score"]   = agent_data.get("sentimiento")
+            m["pred_score"]     = agent_data.get("prediccion")
+            m["sec_score"]      = agent_data.get("sec")
 
         candidatos.sort(key=lambda x: x["score"], reverse=True)
 
@@ -590,7 +637,7 @@ class RiskProfileAgent:
         # ── Construir lista de sectores ──────────────────────────────────
         resultado = []
         for m, peso in zip(seleccionados, pesos):
-            info = etf_meta.get(m["ticker"], {"sector": m["ticker"], "descripcion": ""})
+            info = etf_meta.get(m["ticker"], {"sector": m["ticker"], "descripcion": "", "tipo": "ETF"})
             resultado.append(SectorRecomendado(
                 sector=info["sector"],
                 descripcion=info["descripcion"],
@@ -601,6 +648,10 @@ class RiskProfileAgent:
                 sharpe_hist=round(m["sharpe"],  3),
                 ranking_score=round(m["score"], 3),
                 seleccion="dinamica",
+                tipo=info.get("tipo", "ETF"),
+                señal_sentimiento=round(m["sentim_score"], 3) if m.get("sentim_score") is not None else None,
+                señal_prediccion =round(m["pred_score"],  3) if m.get("pred_score")  is not None else None,
+                señal_sec        =round(m["sec_score"],   3) if m.get("sec_score")   is not None else None,
             ))
 
         logger.info(
@@ -608,6 +659,136 @@ class RiskProfileAgent:
             f"— {universo_evaluado} ETFs evaluados, {len(candidatos)} candidatos"
         )
         return resultado, True, universo_evaluado
+
+    # ------------------------------------------------------------------
+    # Señales de agentes para la selección dinámica
+    # ------------------------------------------------------------------
+
+    def _obtener_señales_agentes(
+        self,
+        candidatos: list,
+        closes: "pd.DataFrame",
+        etf_meta: dict,
+        timeout: float = 25.0,
+    ) -> dict:
+        """
+        Obtiene señales de tres fuentes para cada candidato:
+          - Sentimiento (SentimentAgent): noticias recientes del activo
+          - Predicción (momentum proxy): señal de dirección sobre precios ya
+            descargados, sin I/O adicional (rápida)
+          - SEC (SECAgent): solo para acciones individuales; señal fundamental
+
+        Retorna {ticker: {"sentimiento": 0-1, "prediccion": 0-1,
+                           "sec": 0-1 | None, "combined": 0-1}}
+        """
+        try:
+            from .sentiment_agent import SentimentAgent
+            from .sec_agent import SECAgent
+        except ImportError as e:
+            logger.warning(f"Agentes no importables — scoring sin señales multiagente: {e}")
+            return {}
+
+        logger.info(f"_obtener_señales_agentes: {len(candidatos)} candidatos, cols closes={list(closes.columns[:5])}...")
+        if not hasattr(self, "_sentiment_agent"):
+            try:
+                self._sentiment_agent = SentimentAgent()
+            except Exception as e:
+                logger.warning(f"SentimentAgent no disponible: {e}")
+                self._sentiment_agent = None
+        if not hasattr(self, "_sec_agent"):
+            try:
+                self._sec_agent = SECAgent()
+            except Exception as e:
+                logger.warning(f"SECAgent no disponible: {e}")
+                self._sec_agent = None
+
+        def _momentum_signal(ticker: str) -> float:
+            """Proxy de predicción: momentum de precio + posición respecto a MA20."""
+            if ticker not in closes.columns:
+                return 0.5
+            serie = closes[ticker].dropna()
+            if len(serie) < 21:
+                return 0.5
+            mom_5d   = float(serie.iloc[-1] / serie.iloc[-5] - 1) if len(serie) >= 5 else 0.0
+            ma20     = float(serie.rolling(20).mean().iloc[-1])
+            above_ma = 1.0 if float(serie.iloc[-1]) > ma20 else 0.0
+            mom_norm = (math.tanh(mom_5d * 10) + 1.0) / 2.0
+            return round(0.5 * mom_norm + 0.5 * above_ma, 4)
+
+        def _sentimiento_ticker(ticker: str) -> float:
+            try:
+                if self._sentiment_agent is None:
+                    return 0.5
+                result = self._sentiment_agent.analizar(ticker)
+                raw = float(getattr(result, "score", 0.0) or 0.0)
+                return (raw + 1.0) / 2.0
+            except Exception:
+                return 0.5
+
+        def _sec_ticker(ticker: str) -> float:
+            try:
+                if self._sec_agent is None:
+                    return 0.5
+                result = self._sec_agent.analizar(ticker)
+                raw = float(getattr(result, "fundamental_score", 0.0) or 0.0)
+                return (raw + 1.0) / 2.0
+            except Exception:
+                return 0.5
+
+        tickers = [m["ticker"] for m in candidatos]
+
+        # Señal de momentum — síncrona, sin I/O extra
+        pred_scores = {t: _momentum_signal(t) for t in tickers}
+
+        # Señal de sentimiento — paralela con timeout
+        sentim_scores = {t: 0.5 for t in tickers}
+        with concurrent.futures.ThreadPoolExecutor(max_workers=6) as ex:
+            fut_map = {ex.submit(_sentimiento_ticker, t): t for t in tickers}
+            done, _ = concurrent.futures.wait(fut_map, timeout=timeout)
+            for fut in done:
+                t = fut_map[fut]
+                try:
+                    sentim_scores[t] = fut.result()
+                except Exception:
+                    pass
+
+        # Señal SEC — paralela, solo acciones individuales
+        sec_scores: dict = {}
+        stocks = [t for t in tickers if etf_meta.get(t, {}).get("tipo") == "Acción"]
+        if stocks:
+            with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+                fut_map = {ex.submit(_sec_ticker, t): t for t in stocks}
+                done, _ = concurrent.futures.wait(fut_map, timeout=timeout)
+                for fut in done:
+                    t = fut_map[fut]
+                    try:
+                        sec_scores[t] = fut.result()
+                    except Exception:
+                        pass
+
+        # Combinar señales por activo
+        result = {}
+        for t in tickers:
+            tipo    = etf_meta.get(t, {}).get("tipo", "ETF")
+            sentim  = sentim_scores.get(t, 0.5)
+            pred    = pred_scores.get(t, 0.5)
+            sec     = sec_scores.get(t)
+            if tipo == "Acción" and sec is not None:
+                combined = 0.35 * sentim + 0.35 * pred + 0.30 * sec
+            else:
+                combined = 0.50 * sentim + 0.50 * pred
+            result[t] = {
+                "sentimiento": round(sentim,   3),
+                "prediccion":  round(pred,     3),
+                "sec":         round(sec, 3) if sec is not None else None,
+                "combined":    round(combined, 4),
+            }
+            logger.debug(
+                f"Señal agentes {t}: sent={sentim:.2f} pred={pred:.2f} "
+                f"sec={f'{sec:.2f}' if sec is not None else 'N/A'} → {combined:.3f}"
+            )
+        logger.info(f"_obtener_señales_agentes completado: {len(result)} señales")
+        return result
 
     # ------------------------------------------------------------------
 
