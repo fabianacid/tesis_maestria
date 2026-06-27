@@ -316,6 +316,7 @@ class PortfolioMetricsSchema(BaseModel):
     correlation_matrix: Dict[str, Dict[str, float]]
     num_activos: int
     beta_portfolio: Optional[float] = None
+    max_drawdown: Optional[float] = None
 
 
 class EfficientFrontierPointSchema(BaseModel):

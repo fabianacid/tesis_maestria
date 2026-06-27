@@ -171,6 +171,7 @@ async def predict_ticker(
             features_importance_data = {}
             mda_scores_data = {}
             shap_values_data = {}
+            intervalo_confianza_data = [0.0, 0.0]
             logger.warning(f"[{ticker}] ModelAgent: Predicción no disponible")
         else:
             precio_predicho = prediction.precio_predicho
@@ -191,6 +192,7 @@ async def predict_ticker(
             features_importance_data = prediction.features_importance
             mda_scores_data = prediction.mda_scores
             shap_values_data = prediction.shap_values
+            intervalo_confianza_data = list(prediction.intervalo_confianza) if prediction.intervalo_confianza else [0.0, 0.0]
             logger.info(f"[{ticker}] ModelAgent: Predicción generada")
 
             # Persistir métricas si hay usuario autenticado
@@ -338,6 +340,7 @@ async def predict_ticker(
                 "features_importance": features_importance_data,
                 "mda_scores": mda_scores_data,
                 "shap_values": shap_values_data,
+                "intervalo_confianza": intervalo_confianza_data,
             },
             sentimiento=SentimentResponse(
                 ticker=ticker,

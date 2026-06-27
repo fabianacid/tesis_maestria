@@ -970,7 +970,7 @@ def render_prediction_card(prediccion: Dict, precio_actual: float = 0):
         st.markdown("**¿Qué tan confiable es el modelo?**")
         st.caption("Comparación vs un modelo aleatorio (50% de acierto por azar). Valores calculados con validación cruzada temporal (5 períodos).")
         metricas = prediccion.get('metricas', {})
-        col1, col2, col3, col4 = st.columns(4)
+        col1, col2, col3, col4, col5 = st.columns(5)
         with col1:
             accuracy = metricas.get('accuracy', 0) * 100
             delta_acc = accuracy - 50
@@ -1006,6 +1006,17 @@ def render_prediction_card(prediccion: Dict, precio_actual: float = 0):
                 help="Combina precisión y detección en un solo número. Penaliza fuertemente si uno de los dos es bajo. Es la métrica más completa del modelo."
             )
             st.progress(min(f1 / 100, 1.0))
+        with col5:
+            auc_val = metricas.get('auc', 0.5)
+            delta_auc = (auc_val - 0.5) * 100
+            st.metric(
+                "AUC-ROC",
+                f"{fmt_num(auc_val * 100, 1)}%",
+                delta=f"{delta_auc:+.1f}pp vs azar",
+                delta_color="normal" if delta_auc >= 0 else "inverse",
+                help="Área bajo la curva ROC: mide la capacidad discriminativa del ensemble (subida vs bajada) independientemente del umbral. 50% = aleatorio, 100% = perfecto. Es la métrica de referencia para comparar modelos en la tesis."
+            )
+            st.progress(min(auc_val, 1.0))
 
         # ── SHAP Values ───────────────────────────────────────────────────
         shap_vals = prediccion.get('shap_values', {})
@@ -1366,14 +1377,31 @@ def render_price_chart(ticker: str, prediction_data: Dict):
     ))
 
     # Proyección de 3 días (horizonte de predicción)
-    # Calcular trayectoria lineal desde precio actual hasta precio predicho en 3 días
+    # Usar días hábiles para evitar que la proyección caiga en fin de semana
     precio_actual = mercado['ultimo_precio']
     precio_predicho = prediccion['precio_predicho']
 
-    # Crear puntos para días 1, 2 y 3
-    future_dates = [dates[-1] + pd.Timedelta(days=i) for i in range(1, 4)]
+    future_dates = [dates[-1] + pd.offsets.BDay(i) for i in range(1, 4)]
     step = (precio_predicho - precio_actual) / 3
     future_prices = [precio_actual + step * i for i in range(1, 4)]
+
+    # Intervalo de confianza 95% — crece con sqrt(t) desde t=0 hasta t=3 días
+    ic = prediccion.get('intervalo_confianza', [0.0, 0.0])
+    ic_lo, ic_hi = (ic[0], ic[1]) if len(ic) == 2 and ic[1] > ic[0] > 0 else (0.0, 0.0)
+    if ic_hi > ic_lo > 0:
+        ic_half = (ic_hi - ic_lo) / 2
+        all_dates = [dates[-1]] + future_dates
+        ic_upper = [precio_actual] + [precio_actual + ic_half * np.sqrt(i / 3) for i in range(1, 4)]
+        ic_lower = [precio_actual] + [precio_actual - ic_half * np.sqrt(i / 3) for i in range(1, 4)]
+        fig.add_trace(go.Scatter(
+            x=list(all_dates) + list(reversed(all_dates)),
+            y=ic_upper + list(reversed(ic_lower)),
+            fill='toself',
+            fillcolor='rgba(16, 185, 129, 0.10)',
+            line=dict(color='rgba(16, 185, 129, 0.25)', width=1, dash='dot'),
+            name='IC 95% (3 días)',
+            hoverinfo='skip',
+        ))
 
     # Línea de proyección
     fig.add_trace(go.Scatter(
@@ -1813,12 +1841,13 @@ def render_portfolio_tab():
 
     # --- Métricas clave ---
     st.markdown("<p class='section-header'>Métricas del Portafolio</p>", unsafe_allow_html=True)
-    m1, m2, m3, m4, m5 = st.columns(5)
+    m1, m2, m3, m4, m5, m6 = st.columns(6)
     sharpe = metricas["sharpe_ratio"]
     vol = metricas["volatility"]
     var_95 = metricas["var_95"]
     div_ratio = metricas["diversification_ratio"]
     ret_esp = metricas["expected_return"]
+    mdd = metricas.get("max_drawdown")
 
     # Contexto visible (sin necesidad de hover)
     sharpe_ctx = ("Excelente riesgo/retorno ✅" if sharpe >= 2
@@ -1862,6 +1891,16 @@ def render_portfolio_tab():
               delta=div_ctx,
               delta_color="off",
               help=">1 = los activos se compensan entre sí. 1 = sin diversificación")
+    if mdd is not None:
+        mdd_ctx = ("Drawdown bajo ✅" if mdd > -15
+                   else "Drawdown moderado ⚠️" if mdd > -30
+                   else "Drawdown alto ❌")
+        m6.metric("Max. Drawdown", f"{mdd:.1f}%",
+                  delta=mdd_ctx,
+                  delta_color="off",
+                  help="Mayor caída acumulada desde un máximo histórico en el período analizado (2 años). Mide el peor momento posible del portafolio.")
+    else:
+        m6.metric("Max. Drawdown", "N/D", help="No disponible: datos insuficientes")
 
     if metricas.get("beta_portfolio") is not None:
         beta = metricas['beta_portfolio']
@@ -1910,7 +1949,20 @@ def render_portfolio_tab():
                 "Fundamental": a["fundamental_signal"].capitalize(),
             })
         df_activos = pd.DataFrame(rows)
-        st.table(df_activos)
+        st.dataframe(
+            df_activos,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Peso %":      st.column_config.NumberColumn("Peso %",      format="%.1f%%", help="Participación en el portafolio"),
+                "Ret. Esp. %": st.column_config.NumberColumn("Ret. Esp. %", format="%.1f%%", help="Retorno esperado anualizado (histórico 70% + ML 30%)"),
+                "Volat. %":    st.column_config.NumberColumn("Volat. %",    format="%.1f%%", help="Volatilidad anualizada histórica"),
+                "Recom.":      st.column_config.TextColumn("Recom.",        help="BUY / HOLD / SELL según el agente de recomendación"),
+                "Mercado":     st.column_config.TextColumn("Mercado",       help="Señal técnica del MarketAgent"),
+                "Sentiment":   st.column_config.TextColumn("Sentimiento",   help="Señal del SentimentAgent (FinBERT + VADER + TextBlob)"),
+                "Fundamental": st.column_config.TextColumn("Fundamental",   help="Señal del SECAgent (ratios financieros EDGAR/yfinance)"),
+            },
+        )
 
     st.markdown("---")
 
@@ -2070,8 +2122,11 @@ def render_portfolio_tab():
             )
             st.plotly_chart(fig_fe, use_container_width=True)
             st.caption(
-                "La frontera eficiente muestra las combinaciones óptimas de riesgo-retorno. "
-                "Portafolios sobre la curva dominan a los que están debajo."
+                "La frontera eficiente y los puntos de referencia (Max Sharpe, Mín. Varianza, HRP) "
+                "se calculan con **retornos históricos puros** (media muestral, 2 años). "
+                "El punto **Portafolio actual** (estrella roja) usa retornos esperados que mezclan "
+                "historia (70%) y predicción ML a 3 días (30%), por lo que puede quedar fuera de la curva — "
+                "esto es metodológicamente correcto y esperado, no un error."
             )
 
         # Comparación de pesos: actual vs óptimos
@@ -2098,7 +2153,7 @@ def render_portfolio_tab():
                 "HRP %":           f"{w_hrp_*100:.1f}%" if w_hrp_ else "-",
                 "Δ HRP":           f"{diff_hrp*100:+.1f}pp" if w_hrp_ else "-",
             })
-        st.table(pd.DataFrame(comp_rows))
+        st.dataframe(pd.DataFrame(comp_rows), use_container_width=True, hide_index=True)
 
         # --- Conclusión y plan de acción ---
         st.markdown("---")
@@ -2466,10 +2521,10 @@ def render_risk_profile_tab():
             "Tipo": [_tipo_label(s) for s in sectores],
             "Sector / Empresa": [s["sector"] for s in sectores],
             "Peso (vol. inv.)": [f"{s['peso_target']*100:.1f}%" for s in sectores],
-            f"Retorno {periodo}": [f"{s['retorno_hist']:+.1f}%" if s.get('retorno_hist') is not None else "-" for s in sectores],
-            "Volatilidad": [f"{s['volatilidad_hist']:.1f}%" if s.get('volatilidad_hist') is not None else "-" for s in sectores],
-            "Sharpe": [f"{s['sharpe_hist']:.2f}" if s.get('sharpe_hist') is not None else "-" for s in sectores],
-            "Score perfil": [f"{s['ranking_score']:.3f}" if s.get('ranking_score') is not None else "-" for s in sectores],
+            f"Retorno {periodo} (%)": [f"{s['retorno_hist']:+.1f}%" if s.get('retorno_hist') is not None else "-" for s in sectores],
+            "Volatilidad (% anual)": [f"{s['volatilidad_hist']:.1f}%" if s.get('volatilidad_hist') is not None else "-" for s in sectores],
+            "Sharpe (anualiz.)": [f"{s['sharpe_hist']:.2f}" if s.get('sharpe_hist') is not None else "-" for s in sectores],
+            "Score perfil (0–1)": [f"{s['ranking_score']:.3f}" if s.get('ranking_score') is not None else "-" for s in sectores],
             "Descripción": [s["descripcion"] for s in sectores],
         }
         if tiene_señales:

@@ -497,8 +497,12 @@ class MarketAgent:
                 # OBV (On-Balance Volume)
                 df['OBV'] = OnBalanceVolumeIndicator(close, volume).on_balance_volume()
 
-                # VWAP (Volume Weighted Average Price) - aproximación
-                df['VWAP'] = (volume * (high + low + close) / 3).cumsum() / volume.cumsum()
+                # VWAP rolling 20 días (promedio ponderado por volumen sobre ventana deslizante).
+                # El VWAP intradiario real requiere datos tick-by-tick; con datos diarios
+                # se usa esta aproximación de ventana móvil, que es comparable entre períodos
+                # y evita el sesgo acumulativo del VWAP de sesión.
+                typical_price = (high + low + close) / 3
+                df['VWAP'] = (typical_price * volume).rolling(20).sum() / volume.rolling(20).sum()
 
                 # MFI (Money Flow Index)
                 df['MFI'] = MFIIndicator(high, low, close, volume, window=14).money_flow_index()

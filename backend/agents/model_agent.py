@@ -83,19 +83,23 @@ class ModelType(Enum):
 
 @dataclass
 class ModelMetrics:
-    """Métricas de evaluación para clasificación binaria de dirección de precios."""
-    # Métricas de clasificación binaria (SUBIDA vs BAJADA)
-    accuracy: float = 0.0        # Precisión general del clasificador
+    """
+    Métricas de evaluación para clasificación binaria de dirección de precios.
+
+    El modelo predice la DIRECCIÓN del precio a 3 días (clase 1=sube, 0=baja),
+    por lo que las métricas apropiadas son las de clasificación binaria:
+    accuracy, precision, recall, F1 y AUC-ROC.
+
+    No se reportan RMSE/MAPE/MAE porque esas métricas son de regresión y no
+    aplican a un clasificador de dirección. Usarlas aquí sería metodológicamente
+    incorrecto (confundiría un error de clasificación con un error de magnitud).
+    """
+    accuracy: float = 0.0        # Exactitud general del clasificador
     precision: float = 0.0       # Precisión de clase positiva (SUBIDA)
-    recall: float = 0.0          # Recall de clase positiva (SUBIDA)
-    f1: float = 0.0              # F1-score (balance precision-recall)
-    auc: float = 0.5             # Area Under ROC Curve (capacidad discriminativa)
-    # Métricas adicionales
-    direction_accuracy: float = 0.0  # Exactitud de dirección (porcentaje de aciertos)
-    rmse: float = 0.0                # Proxy de error (1 - accuracy)
-    mape: float = 0.0                # Proxy de error porcentual ((1 - accuracy) * 100)
-    mae: float = 0.0                 # Proxy de error absoluto (1 - accuracy)
-    r2: float = 0.0                  # Proxy de R² (accuracy como referencia)
+    recall: float = 0.0          # Sensibilidad / tasa de verdaderos positivos
+    f1: float = 0.0              # F1-score (media armónica precision-recall)
+    auc: float = 0.5             # AUC-ROC (capacidad discriminativa)
+    direction_accuracy: float = 0.0  # Igual a accuracy; se mantiene para claridad semántica
 
 
 @dataclass
@@ -377,10 +381,14 @@ class ModelAgent:
             variacion_esperada = vol_reciente * np.tanh(logit) * np.sqrt(3)  # horizonte 3 días
             precio_predicho = ultimo_precio * (1 + variacion_esperada)
 
-            # Calcular intervalo de confianza basado en volatilidad reciente
+            # Intervalo de confianza al 95% para horizonte de 3 días.
+            # Bajo supuesto de retornos normales i.i.d., la volatilidad a h días
+            # escala como vol_diaria * sqrt(h). Con h=3: vol_3d = vol_diaria * sqrt(3).
+            # IC_95% = precio * (1 ± vol_3d * 1.96)
+            vol_3d = vol_reciente * np.sqrt(3)
             intervalo = (
-                ultimo_precio * (1 - vol_reciente * 1.96),
-                ultimo_precio * (1 + vol_reciente * 1.96)
+                ultimo_precio * (1 - vol_3d * 1.96),
+                ultimo_precio * (1 + vol_3d * 1.96)
             )
 
             # Métricas del mejor modelo (ahora basado en accuracy, no rmse)
@@ -423,15 +431,17 @@ class ModelAgent:
             ) if shap_scores else {}
 
             # Crear resultado
+            # rmse/mape/mae se conservan en PredictionResult solo para el fallback
+            # de regresión lineal; en el clasificador ensemble se fijan en 0.
             resultado = PredictionResult(
                 ticker=ticker,
                 modelo="ensemble" if modelo == "ensemble" else mejor_modelo[0],
                 precio_predicho=round(precio_predicho, 4),
                 variacion_pct=round(variacion_pct, 4),
                 ultimo_precio=round(ultimo_precio, 4),
-                rmse=round(mejor_metrics.rmse, 4),
-                mape=round(mejor_metrics.mape, 4),
-                mae=round(mejor_metrics.mae, 4),
+                rmse=0.0,
+                mape=0.0,
+                mae=0.0,
                 fecha_prediccion=datetime.now(),
                 parametros={
                     "ventana": self.ventana_entrenamiento,
@@ -745,7 +755,7 @@ class ModelAgent:
             logger.debug(f"Error en predicción final de {model_type.value}: {e}")
             return None, ModelMetrics(), {}
 
-        # Promediar métricas de CLASIFICACIÓN
+        # Promediar métricas de CLASIFICACIÓN sobre los k folds de walk-forward
         avg_metrics = ModelMetrics(
             accuracy=np.mean([m['accuracy'] for m in metrics_list]),
             precision=np.mean([m['precision'] for m in metrics_list]),
@@ -753,11 +763,6 @@ class ModelAgent:
             f1=np.mean([m['f1'] for m in metrics_list]),
             auc=np.mean([m['auc'] for m in metrics_list]),
             direction_accuracy=direction_correct / total_predictions if total_predictions > 0 else 0.5,
-            # Legacy para compatibilidad (usar accuracy como proxy de rmse/mape)
-            rmse=1.0 - np.mean([m['accuracy'] for m in metrics_list]),
-            mape=(1.0 - np.mean([m['accuracy'] for m in metrics_list])) * 100,
-            mae=1.0 - np.mean([m['accuracy'] for m in metrics_list]),
-            r2=np.mean([m['accuracy'] for m in metrics_list])
         )
 
         # Feature importance (si disponible)
@@ -845,7 +850,7 @@ class ModelAgent:
             input_size = X_train.shape[1]
             model = LSTMModel(input_size=input_size, hidden_size=32, num_layers=1)
 
-            criterion = nn.MSELoss()
+            criterion = nn.BCEWithLogitsLoss()  # correcto para clasificación binaria {0,1}
             optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
             # Entrenar
@@ -868,7 +873,8 @@ class ModelAgent:
                     last_seq = np.vstack([pad, last_seq])
 
                 X_pred = torch.FloatTensor(last_seq).unsqueeze(0)
-                prediction = model(X_pred).numpy()[0, 0]
+                # Aplicar sigmoid para convertir logit → probabilidad [0,1]
+                prediction = torch.sigmoid(model(X_pred)).numpy()[0, 0]
 
             return np.array([prediction])
 
@@ -929,38 +935,6 @@ class ModelAgent:
         else:
             return tendencia_historica if tendencia_historica != "neutral" else "lateral"
 
-    def _calcular_confianza(
-        self,
-        metrics: ModelMetrics,
-        std_predicciones: float,
-        ultimo_precio: float
-    ) -> float:
-        """
-        Calcula nivel de confianza de la predicción.
-
-        Factores:
-        - MAPE bajo = mayor confianza
-        - Std de predicciones bajo = mayor confianza
-        - Direction accuracy alto = mayor confianza
-        """
-        # Factor MAPE (normalizado, MAPE < 5% es bueno)
-        mape_factor = max(0, 1 - (metrics.mape / 10))
-
-        # Factor de consenso entre modelos
-        cv = std_predicciones / ultimo_precio if ultimo_precio > 0 else 0
-        consensus_factor = max(0, 1 - cv * 10)
-
-        # Factor de dirección
-        direction_factor = metrics.direction_accuracy
-
-        # Promedio ponderado
-        confianza = (
-            0.4 * mape_factor +
-            0.3 * consensus_factor +
-            0.3 * direction_factor
-        )
-
-        return np.clip(confianza, 0, 1)
 
     def _promediar_importancias(
         self,
@@ -1202,12 +1176,8 @@ class ModelAgent:
             "precio_predicho": resultado.precio_predicho,
             "variacion_pct": resultado.variacion_pct,
             "ultimo_precio": resultado.ultimo_precio,
-            "rmse": resultado.rmse,
-            "mape": resultado.mape,
-            "mae": resultado.mae,
             "fecha_prediccion": resultado.fecha_prediccion.isoformat(),
             "parametros": resultado.parametros,
-            # Datos avanzados
             "intervalo_confianza": resultado.intervalo_confianza,
             "predicciones_modelos": resultado.predicciones_modelos,
             "pesos_ensemble": resultado.pesos_ensemble,
@@ -1218,17 +1188,11 @@ class ModelAgent:
             "confianza": resultado.confianza,
             "prob_subida": resultado.prob_subida,
             "metricas": {
-                # Métricas de clasificación
                 "accuracy": resultado.metricas_completas.accuracy,
                 "precision": resultado.metricas_completas.precision,
                 "recall": resultado.metricas_completas.recall,
                 "f1": resultado.metricas_completas.f1,
                 "auc": resultado.metricas_completas.auc,
-                # Legacy para compatibilidad
-                "rmse": resultado.metricas_completas.rmse,
-                "mae": resultado.metricas_completas.mae,
-                "mape": resultado.metricas_completas.mape,
-                "r2": resultado.metricas_completas.r2,
-                "direction_accuracy": resultado.metricas_completas.direction_accuracy
+                "direction_accuracy": resultado.metricas_completas.direction_accuracy,
             }
         }

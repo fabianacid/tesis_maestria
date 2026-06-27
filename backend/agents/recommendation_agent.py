@@ -253,7 +253,8 @@ class RiskManager:
             risk_factors.append(f"Alta volatilidad ({volatility:.1f}%)")
 
         # VaR 95% estimado (asumiendo distribución normal)
-        var_95 = abs(variacion_pct) * 1.65  # 95% confidence
+        # Usa volatilidad (proxy: ATR) como medida de dispersión, no el retorno esperado.
+        var_95 = volatility * 1.645  # VaR = σ × z(0.95)
         if var_95 > 5:
             risk_factors.append(f"VaR 95% elevado ({var_95:.1f}%)")
 

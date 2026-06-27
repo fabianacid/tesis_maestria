@@ -3,12 +3,21 @@ Backtesting del sistema multiagente de predicción bursátil — v3 Multi-Agente
 
 Combina las señales de los 3 agentes disponibles sin lookahead bias:
 
-  ModelAgent      → prob_subida (entrenado solo con datos hasta t)
-  MarketAgent     → señal técnica calculada desde OHLCV histórico (SMA, RSI, MACD, ATR)
-  SentimentAgent  → proxy de momentum de precio (las noticias históricas no están
-                    disponibles en yfinance, por lo que se usa el retorno de 5 días
-                    relativo como señal de sentimiento del mercado)
+  ModelAgent          → prob_subida (entrenado solo con datos hasta t, walk-forward)
+  MarketAgent         → señal técnica calculada desde OHLCV histórico (SMA, RSI, MACD, ATR)
   RecommendationAgent → combina las señales anteriores en una recomendación unificada
+
+LIMITACIÓN IMPORTANTE — Agente de Sentimiento en backtesting:
+  El SentimentAgent en producción analiza texto de noticias en tiempo real
+  (VADER, TextBlob, FinBERT). En backtesting eso no es reproducible porque
+  yfinance no provee noticias históricas con marca temporal precisa.
+  Como sustituto se usa el retorno de precio de los últimos 5 días como
+  proxy de momentum/sentimiento de mercado (retorno positivo = sentimiento
+  implícitamente positivo). Esta aproximación es una simplificación conocida
+  y subestima el ruido real del SentimentAgent en producción. Los resultados
+  del backtesting deben interpretarse como un límite superior de performance
+  en la dimensión de sentimiento.
+  Referencia: Baker & Wurgler (2006) sobre proxies de sentimiento de mercado.
 
 Señal de COMPRA (consenso requerido):
   - prob_subida >= UMBRAL_COMPRA

@@ -154,6 +154,7 @@ async def analyze_portfolio(
         correlation_matrix=result.metricas.correlation_matrix,
         num_activos=result.metricas.num_activos,
         beta_portfolio=result.metricas.beta_portfolio,
+        max_drawdown=result.metricas.max_drawdown,
     )
 
     # Serializar optimización

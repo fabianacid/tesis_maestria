@@ -70,6 +70,7 @@ class PortfolioMetrics:
     correlation_matrix: Dict[str, Dict[str, float]]
     num_activos: int
     beta_portfolio: Optional[float] = None
+    max_drawdown: Optional[float] = None
 
 
 @dataclass
@@ -329,6 +330,15 @@ class PortfolioAgent:
 
         beta = self._calcular_beta(tickers, w)
 
+        # Maximum Drawdown histórico del portafolio
+        if returns_mat is not None and returns_mat.shape[1] == len(tickers):
+            port_rets_hist = returns_mat @ w
+            cum = np.cumprod(1 + port_rets_hist)
+            roll_max = np.maximum.accumulate(cum)
+            mdd = round(float(np.min(cum / roll_max - 1) * 100), 2)
+        else:
+            mdd = None
+
         return PortfolioMetrics(
             expected_return=round(port_ret, 2),
             volatility=round(port_vol, 2),
@@ -339,6 +349,7 @@ class PortfolioAgent:
             correlation_matrix=corr_dict,
             num_activos=len(activos),
             beta_portfolio=beta,
+            max_drawdown=mdd,
         )
 
     def _get_returns_matrix(self, tickers: List[str], periodo: str = "2y"):
