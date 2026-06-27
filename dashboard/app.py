@@ -2476,6 +2476,16 @@ def render_risk_profile_tab():
         for d in dims:
             st.markdown(f"**{d['dimension']}** ({d['puntos']}/{d['max_puntos']} pts) — {d['interpretacion']}")
 
+    # ── Advertencia de accesibilidad geográfica ───────────────────────────
+    st.info(
+        "**Nota sobre accesibilidad:** Los activos recomendados (ETFs y acciones) cotizan en mercados "
+        "de Estados Unidos. Para inversores en Argentina y otros países de Latinoamérica, el acceso "
+        "puede requerir: (a) cuenta en un broker internacional con habilitación para operar en NYSE/NASDAQ "
+        "(ej. Interactive Brokers, Charles Schwab); o (b) operar vía **CEDEARs** para los activos "
+        "disponibles en esa modalidad, con la diferencia de tipo de cambio implícita que eso conlleva. "
+        "Verifique la disponibilidad y los costos operativos antes de tomar decisiones de inversión."
+    )
+
     # ── Sectores recomendados ─────────────────────────────────────────────
     es_dinamica = result.get("seleccion_dinamica", False)
     periodo     = result.get("periodo_analisis", "")
