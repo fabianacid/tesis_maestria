@@ -36,9 +36,12 @@ from ..agents import (
 )
 from ..agents.risk_profile_agent import (
     RiskProfileAgent, PerfilRiesgo,
-    GrupoEdad, HorizonteInversion, EstabilidadIngresos,
-    ToleranciaPerdidas, ExperienciaInversora, ObjetivoFinanciero,
-    _SECTORES_POR_PERFIL, _RISK_BUDGET,
+    Q01Autopercepcion, Q02ConcursoTV, Q03VacacionPerdidaEmpleo,
+    Q04Inversion20k, Q05ComodidadAcciones, Q06PalabraRiesgo,
+    Q07BonosVsActivosDuros, Q08GananciaPerdidaPotencial,
+    Q09GananciaSegura, Q10PerdidaSegura, Q11Herencia100k,
+    Q12Asignacion20k, Q13MinaOro,
+    _SECTORES_POR_PERFIL, _RISK_BUDGET, _DELTA_AVERSION_POR_PERFIL,
 )
 from ..config import settings
 
@@ -68,13 +71,21 @@ _portfolio_agent = PortfolioAgent(
 )
 
 # Mapeo de strings a enums para validación ──────────────────────────────────
+# 13 ítems del instrumento Grable & Lytton (1999)
 _ENUM_MAP = {
-    "edad":        {e.value: e for e in GrupoEdad},
-    "horizonte":   {e.value: e for e in HorizonteInversion},
-    "ingresos":    {e.value: e for e in EstabilidadIngresos},
-    "perdidas":    {e.value: e for e in ToleranciaPerdidas},
-    "experiencia": {e.value: e for e in ExperienciaInversora},
-    "objetivo":    {e.value: e for e in ObjetivoFinanciero},
+    "q01": {e.value: e for e in Q01Autopercepcion},
+    "q02": {e.value: e for e in Q02ConcursoTV},
+    "q03": {e.value: e for e in Q03VacacionPerdidaEmpleo},
+    "q04": {e.value: e for e in Q04Inversion20k},
+    "q05": {e.value: e for e in Q05ComodidadAcciones},
+    "q06": {e.value: e for e in Q06PalabraRiesgo},
+    "q07": {e.value: e for e in Q07BonosVsActivosDuros},
+    "q08": {e.value: e for e in Q08GananciaPerdidaPotencial},
+    "q09": {e.value: e for e in Q09GananciaSegura},
+    "q10": {e.value: e for e in Q10PerdidaSegura},
+    "q11": {e.value: e for e in Q11Herencia100k},
+    "q12": {e.value: e for e in Q12Asignacion20k},
+    "q13": {e.value: e for e in Q13MinaOro},
 }
 
 
@@ -102,22 +113,18 @@ def _parse_enums(body: RiskProfileRequest):
     response_model=RiskProfileResponse,
     summary="Evaluar perfil de riesgo del inversor",
     description="""
-Recibe las respuestas al cuestionario de 6 dimensiones y devuelve:
+Recibe las respuestas al cuestionario de tolerancia al riesgo validado
+**Grable & Lytton (1999)** (13 ítems) y devuelve:
 - **Perfil de riesgo** (muy_conservador, conservador, moderado, agresivo, muy_agresivo)
-- **Score 0-100** con desglose e interpretación de cada dimensión
+- **Score** con desglose e interpretación de cada ítem
 - **Sectores recomendados** con ETF representativo y peso sugerido
 - **Presupuesto de riesgo**: VaR 95% máximo tolerado y volatilidad anual objetivo
+- **δ (delta_aversion)**: coeficiente de aversión al riesgo para Black-Litterman
 
-### Cuestionario
+### Cuestionario (ver `RiskProfileRequest` para las opciones válidas de cada ítem `q01`…`q13`)
 
-| Campo | Valores válidos |
-|---|---|
-| `edad` | `menor_35` · `36_45` · `46_55` · `56_65` · `mayor_65` |
-| `horizonte` | `menos_1_anio` · `1_3_anios` · `3_5_anios` · `5_10_anios` · `mas_10_anios` |
-| `ingresos` | `muy_inestable` · `inestable` · `moderada` · `estable` · `muy_estable` |
-| `perdidas` | `vender_todo` · `vender_mayoria` · `mantener` · `comprar_poco` · `comprar_mucho` |
-| `experiencia` | `ninguna` · `basica` · `intermedia` · `avanzada` · `experto` |
-| `objetivo` | `preservacion` · `ingreso` · `crecimiento_ingreso` · `crecimiento` · `especulacion` |
+Fuente: Grable, J., & Lytton, R. H. (1999). *Financial Risk Tolerance Revisited:
+The Development of a Risk Assessment Instrument*. Financial Services Review, 8(3), 163-181.
     """,
 )
 async def evaluar_perfil(body: RiskProfileRequest):
@@ -126,6 +133,8 @@ async def evaluar_perfil(body: RiskProfileRequest):
         **enums,
         usar_seleccion_dinamica=body.usar_seleccion_dinamica,
         lookback=body.lookback,
+        precio_maximo=body.precio_maximo,
+        volumen_minimo_usd=body.volumen_minimo_usd,
     )
 
     return RiskProfileResponse(
@@ -168,10 +177,13 @@ async def evaluar_perfil(body: RiskProfileRequest):
             "vol_anual_max": result.risk_budget["vol_anual_max"],
             "max_peso_activo": result.risk_budget["max_peso_activo"],
         },
+        delta_aversion=result.delta_aversion,
         advertencia=result.advertencia,
         seleccion_dinamica=result.seleccion_dinamica,
         periodo_analisis=result.periodo_analisis,
         universo_evaluado=result.universo_evaluado,
+        metodologia=result.metodologia,
+        fecha_analisis=result.fecha_analisis,
     )
 
 
@@ -214,14 +226,16 @@ async def portfolio_por_perfil(body: RiskPortfolioRequest):
     loop = asyncio.get_event_loop()
     try:
         max_w = _RISK_BUDGET[perfil]["max_peso_activo"]
+        delta_perfil = _DELTA_AVERSION_POR_PERFIL[perfil]
         result = await loop.run_in_executor(
             None,
             partial(
                 _portfolio_agent.analizar_portafolio,
-                tickers,
-                pesos,
-                body.forzar_actualizacion,
-                max_w,
+                tickers=tickers,
+                weights=pesos,
+                forzar_actualizacion=body.forzar_actualizacion,
+                max_weight=max_w,
+                delta_aversion=delta_perfil,
             ),
         )
     except Exception as exc:
@@ -251,6 +265,10 @@ async def portfolio_por_perfil(body: RiskPortfolioRequest):
                 fundamental_signal=sec.fundamental_signal if sec else "neutral",
                 fundamental_score=getattr(sec, "fundamental_score", 0.0),
                 variacion_pct=a.prediction.variacion_pct if a.prediction else 0.0,
+                bl_prior=a.bl_prior,
+                bl_view=a.bl_view,
+                bl_posterior=a.bl_posterior,
+                view_confidence=a.view_confidence,
             )
         )
 
@@ -294,6 +312,9 @@ async def portfolio_por_perfil(body: RiskPortfolioRequest):
             hrp_return=o.hrp_return,
             hrp_volatility=o.hrp_volatility,
             hrp_sharpe=o.hrp_sharpe,
+            delta_aversion=o.delta_aversion,
+            tau=o.tau,
+            fuente_delta=o.fuente_delta,
         ),
         recomendacion_portafolio=result.recomendacion_portafolio,
         alertas=result.alertas,

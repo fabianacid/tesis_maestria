@@ -1,33 +1,48 @@
 """
 Agente de Perfil de Riesgo del Inversor
 
-Cuantifica la tolerancia al riesgo mediante un cuestionario de 6 dimensiones
-y genera recomendaciones de asignación sectorial alineadas con ese perfil.
+Cuantifica la tolerancia al riesgo mediante el instrumento validado de
+Grable & Lytton (1999) y genera recomendaciones de asignación sectorial
+alineadas con ese perfil.
 
-Metodología de scoring:
-- Cada dimensión aporta 0-4 puntos → total máximo 24
-- Score normalizado a 0-100
-- 5 perfiles: muy_conservador (0-20), conservador (21-40), moderado (41-60),
-  agresivo (61-80), muy_agresivo (81-100)
+Fuente del instrumento:
+  Grable, J., & Lytton, R. H. (1999). Financial Risk Tolerance Revisited:
+  The Development of a Risk Assessment Instrument. Financial Services
+  Review, 8(3), 163-181.
+  Ampliamente reproducido (con su clave de puntuación) por servicios de
+  extensión universitaria en EEUU (ej. Kansas State University Research
+  and Extension, Rutgers Cooperative Extension) bajo el nombre "Risk
+  Tolerance Quiz".
 
-Dimensiones evaluadas:
-  1. Edad (proxy de horizonte vital)
-  2. Horizonte de inversión declarado
-  3. Estabilidad de ingresos
-  4. Tolerancia a pérdidas (reacción ante caída del 20%)
-  5. Experiencia inversora
-  6. Objetivo financiero principal
+Metodología de scoring (reemplaza la tabla ad-hoc de versiones previas):
+- 13 ítems, cada uno con 2 a 4 opciones de respuesta y su propio puntaje
+  publicado (no inventado por el autor de esta tesis).
+- Score crudo = suma de puntos de los 13 ítems (rango teórico 13-47/48
+  según la edición del instrumento reproducida; el límite superior real
+  de esta implementación se registra en `_MAX_SCORE_RAW`).
+- Clasificación oficial de 5 niveles (Grable & Lytton, 1999):
+    ≤ 18            → muy_conservador  ("low risk tolerance")
+    19 - 22         → conservador      ("below-average risk tolerance")
+    23 - 28         → moderado         ("average/moderate risk tolerance")
+    29 - 32         → agresivo         ("above-average risk tolerance")
+    ≥ 33            → muy_agresivo     ("high risk tolerance")
+  La clasificación se aplica siempre sobre el score CRUDO (no el
+  normalizado a 0-100); el score 0-100 es solo un reescalado lineal para
+  el gauge visual del dashboard.
 
 Salida:
   - Perfil de riesgo con score y descripción
   - Sectores recomendados con ETFs representativos y pesos target
   - Restricciones de cartera para integrar con PortfolioAgent
   - Presupuesto de VaR máximo tolerado
+  - Coeficiente de aversión al riesgo (δ) por perfil, para Black-Litterman
+    en PortfolioAgent (rango 2-10 citado en Bodie/Kane/Marcus, "Investments")
 """
 import concurrent.futures
 import logging
 import math
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Dict, List, Optional, Tuple
 
@@ -36,55 +51,92 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────
-# Enums del cuestionario
+# Ítems del instrumento Grable & Lytton (1999)
 # ──────────────────────────────────────────────
 
-class GrupoEdad(str, Enum):
-    MENOR_35  = "menor_35"
-    ENTRE_36_45 = "36_45"
-    ENTRE_46_55 = "46_55"
-    ENTRE_56_65 = "56_65"
-    MAYOR_65  = "mayor_65"
+class Q01Autopercepcion(str, Enum):
+    EVASOR = "evasor"
+    CAUTELOSO = "cauteloso"
+    CALCULADOR = "calculador"
+    JUGADOR = "jugador"
 
 
-class HorizonteInversion(str, Enum):
-    MENOS_1_ANIO  = "menos_1_anio"
-    UNO_3_ANIOS   = "1_3_anios"
-    TRES_5_ANIOS  = "3_5_anios"
-    CINCO_10_ANIOS = "5_10_anios"
-    MAS_10_ANIOS  = "mas_10_anios"
+class Q02ConcursoTV(str, Enum):
+    EFECTIVO_1000 = "efectivo_1000"
+    CHANCE_50_5000 = "chance_50_5000"
+    CHANCE_25_10000 = "chance_25_10000"
+    CHANCE_5_100000 = "chance_5_100000"
 
 
-class EstabilidadIngresos(str, Enum):
-    MUY_INESTABLE = "muy_inestable"
-    INESTABLE     = "inestable"
-    MODERADA      = "moderada"
-    ESTABLE       = "estable"
-    MUY_ESTABLE   = "muy_estable"
+class Q03VacacionPerdidaEmpleo(str, Enum):
+    CANCELAR = "cancelar"
+    REDUCIR = "reducir"
+    MANTENER_PLAN = "mantener_plan"
+    EXTENDER = "extender"
 
 
-class ToleranciaPerdidas(str, Enum):
-    VENDER_TODO    = "vender_todo"
-    VENDER_MAYORIA = "vender_mayoria"
-    MANTENER       = "mantener"
-    COMPRAR_POCO   = "comprar_poco"
-    COMPRAR_MUCHO  = "comprar_mucho"
+class Q04Inversion20k(str, Enum):
+    DEPOSITO_SEGURO = "deposito_seguro"
+    BONOS_CALIDAD = "bonos_calidad"
+    ACCIONES = "acciones"
 
 
-class ExperienciaInversora(str, Enum):
-    NINGUNA    = "ninguna"
-    BASICA     = "basica"
-    INTERMEDIA = "intermedia"
-    AVANZADA   = "avanzada"
-    EXPERTO    = "experto"
+class Q05ComodidadAcciones(str, Enum):
+    NADA_COMODO = "nada_comodo"
+    ALGO_COMODO = "algo_comodo"
+    MUY_COMODO = "muy_comodo"
 
 
-class ObjetivoFinanciero(str, Enum):
-    PRESERVACION       = "preservacion"
-    INGRESO            = "ingreso"
-    CRECIMIENTO_INGRESO = "crecimiento_ingreso"
-    CRECIMIENTO        = "crecimiento"
-    ESPECULACION       = "especulacion"
+class Q06PalabraRiesgo(str, Enum):
+    PERDIDA = "perdida"
+    INCERTIDUMBRE = "incertidumbre"
+    OPORTUNIDAD = "oportunidad"
+    ADRENALINA = "adrenalina"
+
+
+class Q07BonosVsActivosDuros(str, Enum):
+    MANTENER_BONOS = "mantener_bonos"
+    MITAD_ACTIVOS_DUROS = "mitad_activos_duros"
+    TODO_ACTIVOS_DUROS = "todo_activos_duros"
+    TODO_MAS_APALANCADO = "todo_mas_apalancado"
+
+
+class Q08GananciaPerdidaPotencial(str, Enum):
+    BAJO_RIESGO = "bajo_riesgo"          # +200 / 0
+    MODERADO_BAJO = "moderado_bajo"      # +800 / -200
+    MODERADO_ALTO = "moderado_alto"      # +2600 / -800
+    ALTO_RIESGO = "alto_riesgo"          # +4800 / -2400
+
+
+class Q09GananciaSegura(str, Enum):
+    GANANCIA_SEGURA_500 = "ganancia_segura_500"
+    APUESTA_50_1000 = "apuesta_50_1000"
+
+
+class Q10PerdidaSegura(str, Enum):
+    PERDIDA_SEGURA_500 = "perdida_segura_500"
+    APUESTA_50_1000 = "apuesta_50_1000"
+
+
+class Q11Herencia100k(str, Enum):
+    AHORRO = "ahorro"
+    FONDO_MIXTO = "fondo_mixto"
+    ACCIONES_INDIVIDUALES = "acciones_individuales"
+    COMMODITIES = "commodities"
+
+
+class Q12Asignacion20k(str, Enum):
+    MUY_CONSERVADORA = "muy_conservadora"     # 60/30/10 bajo/medio/alto riesgo
+    CONSERVADORA = "conservadora"              # 40/40/20
+    EQUILIBRADA = "equilibrada"                # 20/40/40
+    AGRESIVA = "agresiva"                      # 10/30/60
+
+
+class Q13MinaOro(str, Enum):
+    NADA = "nada"
+    UN_MES_SALARIO = "un_mes_salario"
+    TRES_MESES_SALARIO = "tres_meses_salario"
+    SEIS_MESES_SALARIO = "seis_meses_salario"
 
 
 class PerfilRiesgo(str, Enum):
@@ -96,58 +148,107 @@ class PerfilRiesgo(str, Enum):
 
 
 # ──────────────────────────────────────────────
-# Tablas de puntuación (0-4 por dimensión, total máx 24)
+# Tablas de puntuación oficiales (Grable & Lytton, 1999)
 # ──────────────────────────────────────────────
 
-_SCORE_EDAD: Dict[str, int] = {
-    GrupoEdad.MENOR_35:    4,
-    GrupoEdad.ENTRE_36_45: 3,
-    GrupoEdad.ENTRE_46_55: 2,
-    GrupoEdad.ENTRE_56_65: 1,
-    GrupoEdad.MAYOR_65:    0,
+_SCORE_Q01: Dict[str, int] = {
+    Q01Autopercepcion.EVASOR:     1,
+    Q01Autopercepcion.CAUTELOSO:  2,
+    Q01Autopercepcion.CALCULADOR: 3,
+    Q01Autopercepcion.JUGADOR:    4,
 }
 
-_SCORE_HORIZONTE: Dict[str, int] = {
-    HorizonteInversion.MENOS_1_ANIO:   0,
-    HorizonteInversion.UNO_3_ANIOS:    1,
-    HorizonteInversion.TRES_5_ANIOS:   2,
-    HorizonteInversion.CINCO_10_ANIOS: 3,
-    HorizonteInversion.MAS_10_ANIOS:   4,
+_SCORE_Q02: Dict[str, int] = {
+    Q02ConcursoTV.EFECTIVO_1000:    1,
+    Q02ConcursoTV.CHANCE_50_5000:   2,
+    Q02ConcursoTV.CHANCE_25_10000:  3,
+    Q02ConcursoTV.CHANCE_5_100000:  4,
 }
 
-_SCORE_INGRESOS: Dict[str, int] = {
-    EstabilidadIngresos.MUY_INESTABLE: 0,
-    EstabilidadIngresos.INESTABLE:     1,
-    EstabilidadIngresos.MODERADA:      2,
-    EstabilidadIngresos.ESTABLE:       3,
-    EstabilidadIngresos.MUY_ESTABLE:   4,
+_SCORE_Q03: Dict[str, int] = {
+    Q03VacacionPerdidaEmpleo.CANCELAR:      1,
+    Q03VacacionPerdidaEmpleo.REDUCIR:       2,
+    Q03VacacionPerdidaEmpleo.MANTENER_PLAN: 3,
+    Q03VacacionPerdidaEmpleo.EXTENDER:      4,
 }
 
-_SCORE_PERDIDAS: Dict[str, int] = {
-    ToleranciaPerdidas.VENDER_TODO:    0,
-    ToleranciaPerdidas.VENDER_MAYORIA: 1,
-    ToleranciaPerdidas.MANTENER:       2,
-    ToleranciaPerdidas.COMPRAR_POCO:   3,
-    ToleranciaPerdidas.COMPRAR_MUCHO:  4,
+_SCORE_Q04: Dict[str, int] = {
+    Q04Inversion20k.DEPOSITO_SEGURO: 1,
+    Q04Inversion20k.BONOS_CALIDAD:   2,
+    Q04Inversion20k.ACCIONES:        3,
 }
 
-_SCORE_EXPERIENCIA: Dict[str, int] = {
-    ExperienciaInversora.NINGUNA:    0,
-    ExperienciaInversora.BASICA:     1,
-    ExperienciaInversora.INTERMEDIA: 2,
-    ExperienciaInversora.AVANZADA:   3,
-    ExperienciaInversora.EXPERTO:    4,
+_SCORE_Q05: Dict[str, int] = {
+    Q05ComodidadAcciones.NADA_COMODO: 1,
+    Q05ComodidadAcciones.ALGO_COMODO: 2,
+    Q05ComodidadAcciones.MUY_COMODO:  3,
 }
 
-_SCORE_OBJETIVO: Dict[str, int] = {
-    ObjetivoFinanciero.PRESERVACION:        0,
-    ObjetivoFinanciero.INGRESO:             1,
-    ObjetivoFinanciero.CRECIMIENTO_INGRESO: 2,
-    ObjetivoFinanciero.CRECIMIENTO:         3,
-    ObjetivoFinanciero.ESPECULACION:        4,
+_SCORE_Q06: Dict[str, int] = {
+    Q06PalabraRiesgo.PERDIDA:        1,
+    Q06PalabraRiesgo.INCERTIDUMBRE:  2,
+    Q06PalabraRiesgo.OPORTUNIDAD:    3,
+    Q06PalabraRiesgo.ADRENALINA:     4,
 }
 
-_MAX_SCORE_RAW = 24  # 6 dimensiones × 4 pts
+_SCORE_Q07: Dict[str, int] = {
+    Q07BonosVsActivosDuros.MANTENER_BONOS:       1,
+    Q07BonosVsActivosDuros.MITAD_ACTIVOS_DUROS:  2,
+    Q07BonosVsActivosDuros.TODO_ACTIVOS_DUROS:   3,
+    Q07BonosVsActivosDuros.TODO_MAS_APALANCADO:  4,
+}
+
+_SCORE_Q08: Dict[str, int] = {
+    Q08GananciaPerdidaPotencial.BAJO_RIESGO:     1,
+    Q08GananciaPerdidaPotencial.MODERADO_BAJO:   2,
+    Q08GananciaPerdidaPotencial.MODERADO_ALTO:   3,
+    Q08GananciaPerdidaPotencial.ALTO_RIESGO:     4,
+}
+
+_SCORE_Q09: Dict[str, int] = {
+    Q09GananciaSegura.GANANCIA_SEGURA_500: 1,
+    Q09GananciaSegura.APUESTA_50_1000:     3,
+}
+
+_SCORE_Q10: Dict[str, int] = {
+    Q10PerdidaSegura.PERDIDA_SEGURA_500: 3,
+    Q10PerdidaSegura.APUESTA_50_1000:    1,
+}
+
+_SCORE_Q11: Dict[str, int] = {
+    Q11Herencia100k.AHORRO:                  1,
+    Q11Herencia100k.FONDO_MIXTO:             2,
+    Q11Herencia100k.ACCIONES_INDIVIDUALES:   3,
+    Q11Herencia100k.COMMODITIES:             4,
+}
+
+_SCORE_Q12: Dict[str, int] = {
+    Q12Asignacion20k.MUY_CONSERVADORA: 1,
+    Q12Asignacion20k.CONSERVADORA:     2,
+    Q12Asignacion20k.EQUILIBRADA:      3,
+    Q12Asignacion20k.AGRESIVA:         4,
+}
+
+_SCORE_Q13: Dict[str, int] = {
+    Q13MinaOro.NADA:                 1,
+    Q13MinaOro.UN_MES_SALARIO:       2,
+    Q13MinaOro.TRES_MESES_SALARIO:   3,
+    Q13MinaOro.SEIS_MESES_SALARIO:   4,
+}
+
+# Rango teórico del score crudo: mínimo = suma de puntos mínimos (13 ítems × 1pt).
+# Máximo = suma de puntos máximos por ítem (algunas ediciones publicadas citan 47,
+# otras 48 según cuántas opciones tenga el ítem 12; se usa el máximo real de las
+# tablas anteriores para el reescalado 0-100, la clasificación por cortes oficiales
+# no depende de este valor porque el tramo superior es abierto ("33 y más")).
+_MIN_SCORE_RAW = 13
+_MAX_SCORE_RAW = (
+    max(_SCORE_Q01.values()) + max(_SCORE_Q02.values()) + max(_SCORE_Q03.values())
+    + max(_SCORE_Q04.values()) + max(_SCORE_Q05.values()) + max(_SCORE_Q06.values())
+    + max(_SCORE_Q07.values()) + max(_SCORE_Q08.values()) + max(_SCORE_Q09.values())
+    + max(_SCORE_Q10.values()) + max(_SCORE_Q11.values()) + max(_SCORE_Q12.values())
+    + max(_SCORE_Q13.values())
+)
 
 
 # ──────────────────────────────────────────────
@@ -225,6 +326,18 @@ _RISK_BUDGET: Dict[str, Dict] = {
     PerfilRiesgo.MUY_AGRESIVO:    {"var_95_max": 40.0, "vol_anual_max": 45.0, "max_peso_activo": 0.65},
 }
 
+# Coeficiente de aversión al riesgo (δ) por perfil, para Black-Litterman en
+# PortfolioAgent. Rango 2-10 citado como típico en Bodie, Z., Kane, A., &
+# Marcus, A. (Investments) para el coeficiente de aversión al riesgo de un
+# inversor individual; espaciado linealmente entre los 5 perfiles.
+_DELTA_AVERSION_POR_PERFIL: Dict[str, float] = {
+    PerfilRiesgo.MUY_CONSERVADOR: 10.0,
+    PerfilRiesgo.CONSERVADOR:      8.0,
+    PerfilRiesgo.MODERADO:         6.0,
+    PerfilRiesgo.AGRESIVO:         4.0,
+    PerfilRiesgo.MUY_AGRESIVO:     2.0,
+}
+
 # Universo de activos candidatos para selección dinámica
 # (ticker, nombre_sector, descripcion, tipo)
 UNIVERSO_ACTIVOS: List[Tuple[str, str, str, str]] = [
@@ -276,6 +389,183 @@ UNIVERSO_ACTIVOS: List[Tuple[str, str, str, str]] = [
 
 # Alias para compatibilidad
 UNIVERSO_ETF = UNIVERSO_ACTIVOS
+
+
+# ──────────────────────────────────────────────
+# Universo dinámico de acciones: componentes actuales del S&P 500
+# filtrados por liquidez, en vez de una lista fija de 16 acciones
+# elegidas a mano. Los 22 ETFs sectoriales de UNIVERSO_ACTIVOS se
+# mantienen (son la taxonomía estándar GICS vía SPDR/iShares, no una
+# opinión del autor) y se combinan con estas acciones dinámicas.
+# ──────────────────────────────────────────────
+
+_PRECIO_MINIMO_FIJO = 5.0            # SEC: umbral de "penny stock" (no configurable)
+_PRECIO_MAXIMO_DEFAULT = 1000.0      # techo por defecto si el inversor no lo define
+_VOLUMEN_MINIMO_USD_DEFAULT = 10_000_000.0  # ADV mínimo típico de liquidez institucional
+_TOP_N_ACCIONES_POR_SECTOR = 5        # tope por sector GICS para acotar el fan-out de señales
+
+_SP500_CACHE_TTL_HORAS = 24
+_sp500_cache: Dict[str, object] = {"data": None, "timestamp": None}
+
+_UNIVERSO_DINAMICO_CACHE_TTL_HORAS = 6
+_universo_dinamico_cache: Dict[Tuple[float, float], Dict[str, object]] = {}
+
+
+def _obtener_constituyentes_sp500() -> Optional[List[Tuple[str, str]]]:
+    """
+    (ticker, sector_gics) de los componentes actuales del S&P 500, vía la
+    tabla de Wikipedia (fuente pública, se actualiza con cada cambio de
+    índice). Cacheado 24h para no depender de Wikipedia en cada corrida.
+    """
+    now = datetime.now()
+    cached = _sp500_cache.get("data")
+    ts = _sp500_cache.get("timestamp")
+    if cached is not None and ts is not None and (now - ts) < timedelta(hours=_SP500_CACHE_TTL_HORAS):
+        return cached
+
+    try:
+        import io
+        import requests
+        import pandas as pd
+
+        headers = {"User-Agent": "Mozilla/5.0 (compatible; TesisRiskProfileAgent/1.0)"}
+        resp = requests.get(
+            "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
+            headers=headers, timeout=15,
+        )
+        resp.raise_for_status()
+        tabla = pd.read_html(io.StringIO(resp.text))[0]
+
+        resultado = [
+            (str(row["Symbol"]).strip().replace(".", "-"), str(row["GICS Sector"]).strip())
+            for _, row in tabla.iterrows()
+        ]
+        _sp500_cache["data"] = resultado
+        _sp500_cache["timestamp"] = now
+        logger.info(f"Constituyentes S&P 500 actualizados desde Wikipedia: {len(resultado)} tickers")
+        return resultado
+    except Exception as exc:
+        logger.warning(f"No se pudo obtener constituyentes S&P 500 de Wikipedia: {exc}")
+        return cached  # puede ser None si nunca se cacheó con éxito
+
+
+def _filtrar_universo_acciones_por_liquidez(
+    candidatos: List[Tuple[str, str]],
+    precio_maximo: float,
+    volumen_minimo_usd: float,
+    periodo: str = "3mo",
+) -> List[Tuple[str, str, str, str]]:
+    """
+    Filtra (ticker, sector_gics) por precio y volumen en dólares, y devuelve
+    el top N por sector según volumen (formato compatible con UNIVERSO_ACTIVOS).
+
+    - Precio: piso fijo $5 (definición SEC de penny stock) + techo definido
+      por el inversor (accesibilidad para portafolios chicos).
+    - Volumen: piso en dólares (precio × volumen) definido por el inversor.
+    """
+    try:
+        import yfinance as yf
+        import pandas as pd
+        import numpy as np
+    except ImportError:
+        return []
+
+    tickers = [t for t, _ in candidatos]
+    sector_map = dict(candidatos)
+
+    try:
+        raw = yf.download(tickers, period=periodo, auto_adjust=True, progress=False, threads=True)
+        if raw is None or raw.empty or not isinstance(raw.columns, pd.MultiIndex):
+            raise ValueError("Descarga de precio/volumen vacía o con formato inesperado")
+        closes = raw["Close"]
+        volumes = raw["Volume"]
+    except Exception as exc:
+        logger.warning(f"Descarga de precio/volumen del universo S&P 500 falló: {exc}")
+        return []
+
+    metricas = []
+    for t in tickers:
+        if t not in closes.columns or t not in volumes.columns:
+            continue
+        precio_serie = closes[t].dropna()
+        vol_serie = volumes[t].dropna()
+        if len(precio_serie) < 20 or len(vol_serie) < 20:
+            continue
+        precio_prom = float(precio_serie.mean())
+        dollar_vol_prom = float((precio_serie * vol_serie.reindex(precio_serie.index)).mean())
+        if not np.isfinite(precio_prom) or not np.isfinite(dollar_vol_prom):
+            continue
+        if precio_prom < _PRECIO_MINIMO_FIJO or precio_prom > precio_maximo:
+            continue
+        if dollar_vol_prom < volumen_minimo_usd:
+            continue
+        metricas.append({
+            "ticker": t, "sector": sector_map.get(t, "Otro"),
+            "precio_prom": precio_prom, "dollar_vol_prom": dollar_vol_prom,
+        })
+
+    por_sector: Dict[str, list] = {}
+    for m in metricas:
+        por_sector.setdefault(m["sector"], []).append(m)
+
+    seleccion = []
+    for _, items in por_sector.items():
+        items.sort(key=lambda x: x["dollar_vol_prom"], reverse=True)
+        seleccion.extend(items[:_TOP_N_ACCIONES_POR_SECTOR])
+
+    return [
+        (m["ticker"], m["sector"], f"Componente S&P 500 — sector {m['sector']}", "Acción")
+        for m in seleccion
+    ]
+
+
+def _construir_universo_dinamico(
+    precio_maximo: Optional[float],
+    volumen_minimo_usd: Optional[float],
+) -> List[Tuple[str, str, str, str]]:
+    """
+    Universo de activos para la selección dinámica: los 22 ETFs sectoriales
+    fijos + acciones del S&P 500 filtradas por liquidez (precio/volumen).
+    Si la construcción dinámica falla o deja muy pocas acciones, cae a la
+    lista predefinida de 16 acciones de UNIVERSO_ACTIVOS (mismo patrón de
+    fallback que el resto del agente).
+    """
+    etfs_fijos = [e for e in UNIVERSO_ACTIVOS if e[3] == "ETF"]
+    precio_max = precio_maximo if precio_maximo is not None else _PRECIO_MAXIMO_DEFAULT
+    vol_min = volumen_minimo_usd if volumen_minimo_usd is not None else _VOLUMEN_MINIMO_USD_DEFAULT
+
+    cache_key = (round(precio_max, 2), round(vol_min, -3) if vol_min > 0 else 0.0)
+    now = datetime.now()
+    cached = _universo_dinamico_cache.get(cache_key)
+    if cached is not None and (now - cached["timestamp"]) < timedelta(hours=_UNIVERSO_DINAMICO_CACHE_TTL_HORAS):
+        return cached["data"]
+
+    acciones_predefinidas = [e for e in UNIVERSO_ACTIVOS if e[3] == "Acción"]
+
+    constituyentes = _obtener_constituyentes_sp500()
+    if not constituyentes:
+        logger.warning("Sin constituyentes S&P 500 disponibles — usando universo de acciones predefinido")
+        resultado = etfs_fijos + acciones_predefinidas
+    else:
+        acciones_dinamicas = _filtrar_universo_acciones_por_liquidez(
+            constituyentes, precio_max, vol_min
+        )
+        if len(acciones_dinamicas) < 5:
+            logger.warning(
+                f"Filtro de liquidez (precio<=${precio_max:.0f}, vol>=${vol_min:,.0f}) dejó solo "
+                f"{len(acciones_dinamicas)} acciones — usando universo de acciones predefinido"
+            )
+            resultado = etfs_fijos + acciones_predefinidas
+        else:
+            logger.info(
+                f"Universo dinámico S&P 500: {len(acciones_dinamicas)} acciones pasaron el filtro "
+                f"de liquidez (precio<=${precio_max:.0f}, vol>=${vol_min:,.0f})"
+            )
+            resultado = etfs_fijos + acciones_dinamicas
+
+    _universo_dinamico_cache[cache_key] = {"data": resultado, "timestamp": now}
+    return resultado
+
 
 # Factor de agresividad por perfil: 0 = puramente Sharpe, 1 = puramente retorno
 _AGRESIVIDAD: Dict[str, float] = {
@@ -330,18 +620,21 @@ class DimensionScore:
 @dataclass
 class RiskProfileResult:
     perfil: PerfilRiesgo
-    score: float                          # 0-100
-    score_raw: int                        # 0-24
+    score: float                          # 0-100 (reescalado lineal, solo visual)
+    score_raw: int                        # score crudo del instrumento (13-47/48)
     descripcion_perfil: str
     dimensiones: List[DimensionScore]
     sectores_recomendados: List[SectorRecomendado]
     tickers_recomendados: List[str]       # solo los ETFs, para pasar a PortfolioAgent
     pesos_sugeridos: List[float]          # alineados con tickers_recomendados
     risk_budget: Dict                     # var_95_max, vol_anual_max, max_peso_activo
+    delta_aversion: float = 6.0           # δ para Black-Litterman (PortfolioAgent)
     advertencia: str = ""
     seleccion_dinamica: bool = False      # True si se usaron datos históricos reales
     periodo_analisis: str = ""            # e.g. "1y" o "predefinido"
     universo_evaluado: int = 0            # cuántos ETFs del universo se analizaron
+    metodologia: str = "Grable & Lytton (1999) — Financial Risk Tolerance Scale, 13 ítems"
+    fecha_analisis: datetime = field(default_factory=datetime.now)  # timestamp de la corrida
 
 
 # ──────────────────────────────────────────────
@@ -350,44 +643,67 @@ class RiskProfileResult:
 
 class RiskProfileAgent:
     """
-    Evalúa el perfil de riesgo del inversor y genera recomendaciones
-    de asignación sectorial alineadas con su tolerancia al riesgo.
+    Evalúa el perfil de riesgo del inversor (instrumento Grable & Lytton, 1999)
+    y genera recomendaciones de asignación sectorial alineadas con su
+    tolerancia al riesgo.
 
     Uso básico:
         agent = RiskProfileAgent()
         result = agent.evaluar(
-            edad=GrupoEdad.MENOR_35,
-            horizonte=HorizonteInversion.MAS_10_ANIOS,
-            ingresos=EstabilidadIngresos.MUY_ESTABLE,
-            perdidas=ToleranciaPerdidas.COMPRAR_POCO,
-            experiencia=ExperienciaInversora.INTERMEDIA,
-            objetivo=ObjetivoFinanciero.CRECIMIENTO,
+            q01=Q01Autopercepcion.CALCULADOR,
+            q02=Q02ConcursoTV.CHANCE_25_10000,
+            q03=Q03VacacionPerdidaEmpleo.MANTENER_PLAN,
+            q04=Q04Inversion20k.ACCIONES,
+            q05=Q05ComodidadAcciones.MUY_COMODO,
+            q06=Q06PalabraRiesgo.OPORTUNIDAD,
+            q07=Q07BonosVsActivosDuros.MITAD_ACTIVOS_DUROS,
+            q08=Q08GananciaPerdidaPotencial.MODERADO_ALTO,
+            q09=Q09GananciaSegura.APUESTA_50_1000,
+            q10=Q10PerdidaSegura.APUESTA_50_1000,
+            q11=Q11Herencia100k.ACCIONES_INDIVIDUALES,
+            q12=Q12Asignacion20k.EQUILIBRADA,
+            q13=Q13MinaOro.TRES_MESES_SALARIO,
         )
     """
 
     def evaluar(
         self,
-        edad: GrupoEdad,
-        horizonte: HorizonteInversion,
-        ingresos: EstabilidadIngresos,
-        perdidas: ToleranciaPerdidas,
-        experiencia: ExperienciaInversora,
-        objetivo: ObjetivoFinanciero,
+        q01: Q01Autopercepcion,
+        q02: Q02ConcursoTV,
+        q03: Q03VacacionPerdidaEmpleo,
+        q04: Q04Inversion20k,
+        q05: Q05ComodidadAcciones,
+        q06: Q06PalabraRiesgo,
+        q07: Q07BonosVsActivosDuros,
+        q08: Q08GananciaPerdidaPotencial,
+        q09: Q09GananciaSegura,
+        q10: Q10PerdidaSegura,
+        q11: Q11Herencia100k,
+        q12: Q12Asignacion20k,
+        q13: Q13MinaOro,
         usar_seleccion_dinamica: bool = True,
         lookback: str = "1y",
+        precio_maximo: Optional[float] = None,
+        volumen_minimo_usd: Optional[float] = None,
     ) -> RiskProfileResult:
         raw, dimensiones = self._calcular_score(
-            edad, horizonte, ingresos, perdidas, experiencia, objetivo
+            q01, q02, q03, q04, q05, q06, q07, q08, q09, q10, q11, q12, q13
         )
-        score_norm = round((raw / _MAX_SCORE_RAW) * 100, 1)
-        perfil = self._clasificar(score_norm)
+        # Clasificación oficial Grable & Lytton (1999) sobre el score CRUDO.
+        perfil = self._clasificar(raw)
+        # Reescalado lineal 0-100 SOLO para el gauge visual del dashboard;
+        # la clasificación ya se hizo arriba sobre el score crudo.
+        score_norm = round(
+            (raw - _MIN_SCORE_RAW) / (_MAX_SCORE_RAW - _MIN_SCORE_RAW) * 100, 1
+        )
 
         # Selección de sectores: dinámica (datos reales) o predefinida (fallback)
         seleccion_dinamica = False
         universo_evaluado = 0
         if usar_seleccion_dinamica:
             sectores, seleccion_dinamica, universo_evaluado = self._seleccionar_sectores_dinamico(
-                perfil, lookback=lookback
+                perfil, lookback=lookback,
+                precio_maximo=precio_maximo, volumen_minimo_usd=volumen_minimo_usd,
             )
         else:
             sectores = _SECTORES_POR_PERFIL[perfil]
@@ -404,7 +720,7 @@ class RiskProfileAgent:
 
         periodo = lookback if seleccion_dinamica else "predefinido"
         logger.info(
-            f"RiskProfileAgent: score={score_norm}/100 → perfil={perfil.value} "
+            f"RiskProfileAgent: score_raw={raw} ({_MIN_SCORE_RAW}-{_MAX_SCORE_RAW}) → perfil={perfil.value} "
             f"| selección={'dinámica (' + lookback + ')' if seleccion_dinamica else 'predefinida'}"
         )
 
@@ -418,6 +734,7 @@ class RiskProfileAgent:
             tickers_recomendados=tickers,
             pesos_sugeridos=pesos,
             risk_budget=_RISK_BUDGET[perfil],
+            delta_aversion=_DELTA_AVERSION_POR_PERFIL[perfil],
             advertencia=advertencia,
             seleccion_dinamica=seleccion_dinamica,
             periodo_analisis=periodo,
@@ -433,15 +750,22 @@ class RiskProfileAgent:
         perfil: PerfilRiesgo,
         n_etfs: int = 6,
         lookback: str = "1y",
+        precio_maximo: Optional[float] = None,
+        volumen_minimo_usd: Optional[float] = None,
     ) -> Tuple[List[SectorRecomendado], bool, int]:
         """
-        Selecciona los N mejores ETFs del universo para el perfil dado
+        Selecciona los N mejores activos del universo para el perfil dado
         usando datos históricos reales de yfinance.
 
+        El universo evaluado combina los 22 ETFs sectoriales fijos con
+        acciones del S&P 500 filtradas dinámicamente por precio y volumen
+        (ver `_construir_universo_dinamico`), en vez de una lista fija de
+        acciones elegidas a mano.
+
         Algoritmo:
-          1. Descarga `lookback` de retornos diarios para todos los ETFs del universo.
-          2. Calcula retorno anualizado, volatilidad y Sharpe por ETF.
-          3. Filtra ETFs cuya volatilidad supere el límite del perfil (con tolerancia 30%).
+          1. Descarga `lookback` de retornos diarios para todo el universo.
+          2. Calcula retorno anualizado, volatilidad y Sharpe por activo.
+          3. Filtra activos cuya volatilidad supere el límite del perfil (con tolerancia 30%).
           4. Rankea por score ajustado al perfil:
                score = (1 - agresividad) * sharpe_normalizado
                      + agresividad * retorno_normalizado
@@ -449,7 +773,7 @@ class RiskProfileAgent:
           5. Toma los top N y asigna pesos por volatilidad inversa.
 
         Returns:
-            (sectores, fue_dinamico, n_etfs_evaluados)
+            (sectores, fue_dinamico, n_activos_evaluados)
         """
         try:
             import yfinance as yf
@@ -464,8 +788,9 @@ class RiskProfileAgent:
         rf        = 4.5   # tasa libre de riesgo %
         TRADING_DAYS = 252
 
-        tickers_universo = [e[0] for e in UNIVERSO_ACTIVOS]
-        etf_meta = {e[0]: {"sector": e[1], "descripcion": e[2], "tipo": e[3]} for e in UNIVERSO_ACTIVOS}
+        universo_actual = _construir_universo_dinamico(precio_maximo, volumen_minimo_usd)
+        tickers_universo = [e[0] for e in universo_actual]
+        etf_meta = {e[0]: {"sector": e[1], "descripcion": e[2], "tipo": e[3]} for e in universo_actual}
 
         # ── Descargar datos ──────────────────────────────────────────────
         try:
@@ -794,87 +1119,103 @@ class RiskProfileAgent:
 
     def _calcular_score(
         self,
-        edad: GrupoEdad,
-        horizonte: HorizonteInversion,
-        ingresos: EstabilidadIngresos,
-        perdidas: ToleranciaPerdidas,
-        experiencia: ExperienciaInversora,
-        objetivo: ObjetivoFinanciero,
+        q01: Q01Autopercepcion,
+        q02: Q02ConcursoTV,
+        q03: Q03VacacionPerdidaEmpleo,
+        q04: Q04Inversion20k,
+        q05: Q05ComodidadAcciones,
+        q06: Q06PalabraRiesgo,
+        q07: Q07BonosVsActivosDuros,
+        q08: Q08GananciaPerdidaPotencial,
+        q09: Q09GananciaSegura,
+        q10: Q10PerdidaSegura,
+        q11: Q11Herencia100k,
+        q12: Q12Asignacion20k,
+        q13: Q13MinaOro,
     ) -> Tuple[int, List[DimensionScore]]:
 
         def _dim(nombre, respuesta, tabla, interps):
             pts = tabla.get(respuesta, 0)
+            max_pts = max(tabla.values())
             return DimensionScore(
                 dimension=nombre,
                 respuesta=str(respuesta),
                 puntos=pts,
-                max_puntos=4,
-                interpretacion=interps[pts],
+                max_puntos=max_pts,
+                interpretacion=interps.get(pts, ""),
             )
 
-        interp_edad = [
-            "Horizonte vital reducido; menor capacidad de recuperar pérdidas.",
-            "Horizonte moderado; cautela recomendada.",
-            "Horizonte medio; equilibrio riesgo-retorno factible.",
-            "Horizonte amplio; puede absorber ciclos bajistas.",
-            "Horizonte muy amplio; tiempo suficiente para recuperar caídas.",
-        ]
-        interp_horizonte = [
-            "Inversión a muy corto plazo; máxima liquidez necesaria.",
-            "Corto plazo; volatilidad difícil de absorber.",
-            "Mediano plazo; tolerable algo de riesgo.",
-            "Largo plazo; capacidad alta de esperar recuperación.",
-            "Muy largo plazo; máxima capacidad de asumir riesgo temporal.",
-        ]
-        interp_ingresos = [
-            "Ingresos muy inestables; prioridad a liquidez.",
-            "Ingresos variables; mantener colchón de seguridad.",
-            "Ingresos moderados; margen limitado para asumir pérdidas.",
-            "Ingresos estables; puede comprometer capital a largo plazo.",
-            "Ingresos muy estables; puede asumir alta volatilidad.",
-        ]
-        interp_perdidas = [
-            "Tolera pérdidas mínimas; perfil muy defensivo.",
-            "Vende ante pérdidas; evita activos volátiles.",
-            "Mantiene calma; espera recuperación sin actuar.",
-            "Ve caídas como oportunidad moderada.",
-            "Compra agresivamente en caídas; alto temple inversor.",
-        ]
-        interp_experiencia = [
-            "Sin experiencia; desconoce volatilidad real de mercados.",
-            "Experiencia básica; puede sorprenderse ante caídas.",
-            "Experiencia intermedia; comprende ciclos de mercado.",
-            "Experiencia avanzada; gestiona posiciones complejas.",
-            "Experto; conocimiento profundo de riesgo y derivados.",
-        ]
-        interp_objetivo = [
-            "Objetivo: no perder. Retorno secundario.",
-            "Objetivo: flujo de dividendos estable.",
-            "Objetivo: crecimiento moderado con ingresos.",
-            "Objetivo: apreciación del capital a largo plazo.",
-            "Objetivo: máximo retorno; acepta alta incertidumbre.",
-        ]
+        interp_q01 = {1: "Se percibe como evasor del riesgo.", 2: "Se percibe cauteloso.",
+                      3: "Se percibe como un tomador de riesgo calculado.", 4: "Se percibe como un verdadero apostador."}
+        interp_q02 = {1: "Prefiere el efectivo seguro, sin exposición al azar.",
+                      2: "Acepta una apuesta moderada por una ganancia mayor.",
+                      3: "Acepta más incertidumbre por un premio mayor.",
+                      4: "Busca el premio más alto aun con probabilidad mínima."}
+        interp_q03 = {1: "Prioriza la seguridad financiera inmediata ante la pérdida de ingresos.",
+                      2: "Reduce el gasto pero mantiene el plan parcialmente.",
+                      3: "Mantiene el plan pese a la incertidumbre laboral.",
+                      4: "Prioriza la experiencia por sobre la prudencia financiera."}
+        interp_q04 = {1: "Prefiere liquidez y capital garantizado.",
+                      2: "Acepta renta fija de calidad para buscar algo más de retorno.",
+                      3: "Acepta la volatilidad de la renta variable por mayor retorno esperado."}
+        interp_q05 = {1: "No se siente cómodo con la volatilidad de las acciones.",
+                      2: "Tolera cierta volatilidad en renta variable.",
+                      3: "Se siente cómodo invirtiendo en acciones."}
+        interp_q06 = {1: "Asocia el riesgo primero con pérdida.", 2: "Asocia el riesgo con incertidumbre.",
+                      3: "Asocia el riesgo con oportunidad.", 4: "Asocia el riesgo con adrenalina/emoción."}
+        interp_q07 = {1: "Mantiene la posición defensiva pese a la señal de mercado.",
+                      2: "Diversifica parcialmente hacia activos duros.",
+                      3: "Rota completamente hacia activos duros.",
+                      4: "Rota y además apalanca la posición — tolerancia muy alta."}
+        interp_q08 = {1: "Prefiere el perfil de menor ganancia/pérdida potencial.",
+                      2: "Acepta un perfil moderado-bajo de ganancia/pérdida.",
+                      3: "Acepta un perfil moderado-alto de ganancia/pérdida.",
+                      4: "Prefiere el perfil de mayor ganancia/pérdida potencial."}
+        interp_q09 = {1: "Prefiere la ganancia segura antes que apostar por más.",
+                      3: "Prefiere apostar por una ganancia mayor con riesgo de no ganar nada."}
+        interp_q10 = {1: "Prefiere arriesgarse a perder más con tal de tener chance de no perder nada.",
+                      3: "Prefiere asegurar la pérdida menor antes que arriesgarse a una mayor."}
+        interp_q11 = {1: "Invertiría toda la herencia en instrumentos de máxima seguridad.",
+                      2: "Invertiría en un fondo mixto de acciones y bonos.",
+                      3: "Invertiría en un portafolio de acciones individuales.",
+                      4: "Invertiría en commodities de alta volatilidad."}
+        interp_q12 = {1: "Prefiere una asignación muy conservadora (mayoría bajo riesgo).",
+                      2: "Prefiere una asignación conservadora.",
+                      3: "Prefiere una asignación equilibrada.",
+                      4: "Prefiere una asignación agresiva (mayoría alto riesgo)."}
+        interp_q13 = {1: "No arriesgaría capital en un proyecto especulativo de alto riesgo.",
+                      2: "Arriesgaría una porción menor de sus ingresos.",
+                      3: "Arriesgaría una porción moderada de sus ingresos.",
+                      4: "Arriesgaría una porción alta de sus ingresos en un proyecto especulativo."}
 
         dims = [
-            _dim("Edad / Horizonte vital",         edad,        _SCORE_EDAD,        interp_edad),
-            _dim("Horizonte de inversión",          horizonte,   _SCORE_HORIZONTE,   interp_horizonte),
-            _dim("Estabilidad de ingresos",         ingresos,    _SCORE_INGRESOS,    interp_ingresos),
-            _dim("Tolerancia a pérdidas",           perdidas,    _SCORE_PERDIDAS,    interp_perdidas),
-            _dim("Experiencia inversora",           experiencia, _SCORE_EXPERIENCIA, interp_experiencia),
-            _dim("Objetivo financiero",             objetivo,    _SCORE_OBJETIVO,    interp_objetivo),
+            _dim("1. Autopercepción como tomador de riesgo", q01, _SCORE_Q01, interp_q01),
+            _dim("2. Elección en concurso de TV",             q02, _SCORE_Q02, interp_q02),
+            _dim("3. Vacación tras pérdida de empleo",        q03, _SCORE_Q03, interp_q03),
+            _dim("4. Inversión de $20.000 inesperados",       q04, _SCORE_Q04, interp_q04),
+            _dim("5. Comodidad invirtiendo en acciones",      q05, _SCORE_Q05, interp_q05),
+            _dim("6. Primera palabra asociada a 'riesgo'",    q06, _SCORE_Q06, interp_q06),
+            _dim("7. Rotación bonos vs. activos duros",       q07, _SCORE_Q07, interp_q07),
+            _dim("8. Perfil de ganancia/pérdida potencial",   q08, _SCORE_Q08, interp_q08),
+            _dim("9. Ganancia segura vs. apuesta",            q09, _SCORE_Q09, interp_q09),
+            _dim("10. Pérdida segura vs. apuesta",            q10, _SCORE_Q10, interp_q10),
+            _dim("11. Herencia de $100.000 en una opción",    q11, _SCORE_Q11, interp_q11),
+            _dim("12. Asignación de $20.000 por nivel de riesgo", q12, _SCORE_Q12, interp_q12),
+            _dim("13. Inversión especulativa (mina de oro)",  q13, _SCORE_Q13, interp_q13),
         ]
 
         return sum(d.puntos for d in dims), dims
 
     @staticmethod
-    def _clasificar(score: float) -> PerfilRiesgo:
-        if score <= 20:
+    def _clasificar(score_raw: int) -> PerfilRiesgo:
+        """Clasificación oficial Grable & Lytton (1999) sobre el score crudo."""
+        if score_raw <= 18:
             return PerfilRiesgo.MUY_CONSERVADOR
-        elif score <= 40:
+        elif score_raw <= 22:
             return PerfilRiesgo.CONSERVADOR
-        elif score <= 60:
+        elif score_raw <= 28:
             return PerfilRiesgo.MODERADO
-        elif score <= 80:
+        elif score_raw <= 32:
             return PerfilRiesgo.AGRESIVO
         else:
             return PerfilRiesgo.MUY_AGRESIVO

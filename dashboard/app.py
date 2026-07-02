@@ -235,13 +235,27 @@ def get_alerts() -> list:
         return []
 
 
+def _fmt_fecha_analisis(raw: Optional[str]) -> str:
+    """Formatea un timestamp ISO 8601 del backend para mostrar en el dashboard."""
+    if not raw:
+        return "-"
+    try:
+        return datetime.fromisoformat(raw).strftime("%Y-%m-%d %H:%M:%S")
+    except (ValueError, TypeError):
+        return str(raw)
+
+
 def evaluate_risk_profile(answers: dict) -> Optional[Dict[str, Any]]:
     """Evalúa el perfil de riesgo del inversor."""
     try:
         response = requests.post(
             f"{API_URL}/risk/profile",
             json=answers,
-            timeout=15,
+            # La selección dinámica descarga precio/volumen de ~500 tickers del
+            # S&P 500 en la primera corrida con umbrales nuevos (puede tardar
+            # 1-3 min); corridas repetidas con los mismos umbrales usan caché
+            # y son rápidas. 15s era insuficiente incluso antes de esto.
+            timeout=300,
         )
         if response.status_code == 200:
             return response.json()
@@ -251,6 +265,13 @@ def evaluate_risk_profile(answers: dict) -> Optional[Dict[str, Any]]:
             return None
     except requests.exceptions.ConnectionError:
         st.error("No se pudo conectar al backend.")
+        return None
+    except requests.exceptions.Timeout:
+        st.error(
+            "La evaluación tardó demasiado (probablemente construyendo el universo "
+            "dinámico del S&P 500 por primera vez con estos umbrales). Intentá de nuevo — "
+            "la segunda vez debería ser mucho más rápida por la caché."
+        )
         return None
     except Exception as exc:
         st.error(f"Error: {str(exc)}")
@@ -1947,6 +1968,9 @@ def render_portfolio_tab():
                 "Mercado": a["senal_mercado"].capitalize(),
                 "Sentiment": a["sentimiento"].capitalize(),
                 "Fundamental": a["fundamental_signal"].capitalize(),
+                "Π equilibrio %": a.get("bl_prior"),
+                "Q vista agentes %": a.get("bl_view"),
+                "μ posterior BL %": a.get("bl_posterior"),
             })
         df_activos = pd.DataFrame(rows)
         st.dataframe(
@@ -1955,14 +1979,23 @@ def render_portfolio_tab():
             hide_index=True,
             column_config={
                 "Peso %":      st.column_config.NumberColumn("Peso %",      format="%.1f%%", help="Participación en el portafolio"),
-                "Ret. Esp. %": st.column_config.NumberColumn("Ret. Esp. %", format="%.1f%%", help="Retorno esperado anualizado (histórico 70% + ML 30%)"),
+                "Ret. Esp. %": st.column_config.NumberColumn("Ret. Esp. %", format="%.1f%%", help="Retorno esperado ingenuo (histórico 70% + ML 30%) — solo referencia, el optimizador usa μ posterior BL"),
                 "Volat. %":    st.column_config.NumberColumn("Volat. %",    format="%.1f%%", help="Volatilidad anualizada histórica"),
                 "Recom.":      st.column_config.TextColumn("Recom.",        help="BUY / HOLD / SELL según el agente de recomendación"),
                 "Mercado":     st.column_config.TextColumn("Mercado",       help="Señal técnica del MarketAgent"),
                 "Sentiment":   st.column_config.TextColumn("Sentimiento",   help="Señal del SentimentAgent (FinBERT + VADER + TextBlob)"),
                 "Fundamental": st.column_config.TextColumn("Fundamental",   help="Señal del SECAgent (ratios financieros EDGAR/yfinance)"),
+                "Π equilibrio %":    st.column_config.NumberColumn("Π equilibrio %",    format="%.2f%%", help="Retorno de equilibrio de mercado (Black-Litterman)"),
+                "Q vista agentes %": st.column_config.NumberColumn("Q vista agentes %", format="%.2f%%", help="Vista combinada de ModelAgent + SentimentAgent + SECAgent"),
+                "μ posterior BL %":  st.column_config.NumberColumn("μ posterior BL %",  format="%.2f%%", help="Retorno posterior — el que realmente usa el optimizador de Markowitz"),
             },
         )
+        opt_bl = pf.get("optimizacion", {})
+        if opt_bl.get("delta_aversion"):
+            st.caption(
+                f"Black-Litterman: δ (aversión al riesgo) = {opt_bl.get('delta_aversion', 0):.2f} "
+                f"(fuente: {opt_bl.get('fuente_delta', '-')}) · τ = {opt_bl.get('tau', 0):.3f}"
+            )
 
     st.markdown("---")
 
@@ -2279,69 +2312,124 @@ def render_risk_profile_tab():
     """Pestaña de cuantificación del perfil de riesgo del inversor."""
     st.markdown("### Perfil de Riesgo del Inversor")
     st.markdown(
-        "Respondé 6 preguntas para cuantificar tu tolerancia al riesgo. "
-        "El sistema te asignará un perfil y recomendará los sectores más adecuados para tu cartera."
+        "Respondé las 13 preguntas del instrumento validado **Grable & Lytton (1999)** "
+        "*Financial Risk Tolerance Scale* para cuantificar tu tolerancia al riesgo. "
+        "El sistema te asignará un perfil (según la clasificación oficial del instrumento) "
+        "y recomendará los sectores más adecuados para tu cartera."
     )
 
     OPCIONES = {
-        "edad": {
-            "label": "¿Cuál es tu grupo etario?",
+        "q01": {
+            "label": "1. ¿Cómo te describiría tu mejor amigo/a en cuanto a asumir riesgos?",
             "opciones": {
-                "Menor de 35 años": "menor_35",
-                "Entre 36 y 45 años": "36_45",
-                "Entre 46 y 55 años": "46_55",
-                "Entre 56 y 65 años": "56_65",
-                "Mayor de 65 años": "mayor_65",
+                "Un evasor del riesgo": "evasor",
+                "Cauteloso/a": "cauteloso",
+                "Un tomador de riesgo calculado": "calculador",
+                "Un verdadero apostador": "jugador",
             },
         },
-        "horizonte": {
-            "label": "¿A qué plazo pensás invertir?",
+        "q02": {
+            "label": "2. En un concurso de TV podés elegir. ¿Qué elegirías?",
             "opciones": {
-                "Menos de 1 año": "menos_1_anio",
-                "1 a 3 años": "1_3_anios",
-                "3 a 5 años": "3_5_anios",
-                "5 a 10 años": "5_10_anios",
-                "Más de 10 años": "mas_10_anios",
+                "$1.000 en efectivo, seguro": "efectivo_1000",
+                "50% de chance de ganar $5.000": "chance_50_5000",
+                "25% de chance de ganar $10.000": "chance_25_10000",
+                "5% de chance de ganar $100.000": "chance_5_100000",
             },
         },
-        "ingresos": {
-            "label": "¿Qué tan estables son tus ingresos?",
+        "q03": {
+            "label": "3. Perdiste tu empleo 3 semanas antes de tus vacaciones soñadas. ¿Qué harías?",
             "opciones": {
-                "Muy inestables (freelance / desempleo)": "muy_inestable",
-                "Inestables": "inestable",
-                "Moderados": "moderada",
-                "Estables (empleo fijo)": "estable",
-                "Muy estables (múltiples fuentes)": "muy_estable",
+                "Cancelar las vacaciones": "cancelar",
+                "Tomar unas vacaciones mucho más modestas": "reducir",
+                "Mantener el plan (necesito el descanso para buscar empleo)": "mantener_plan",
+                "Extender las vacaciones (puede ser mi última chance)": "extender",
             },
         },
-        "perdidas": {
-            "label": "Si tu cartera cae un 20%, ¿qué harías?",
+        "q04": {
+            "label": "4. Recibís $20.000 inesperados para invertir. ¿Qué harías?",
             "opciones": {
-                "Vendería todo para evitar más pérdidas": "vender_todo",
-                "Vendería la mayoría": "vender_mayoria",
-                "Mantendría y esperaría la recuperación": "mantener",
-                "Compraría un poco más (oportunidad)": "comprar_poco",
-                "Compraría mucho más agresivamente": "comprar_mucho",
+                "Depositarlo en una cuenta/CD segura": "deposito_seguro",
+                "Invertir en bonos de alta calidad": "bonos_calidad",
+                "Invertir en acciones o fondos de acciones": "acciones",
             },
         },
-        "experiencia": {
-            "label": "¿Cuánta experiencia inversora tenés?",
+        "q05": {
+            "label": "5. ¿Qué tan cómodo/a te sentís invirtiendo en acciones?",
             "opciones": {
-                "Ninguna": "ninguna",
-                "Básica (plazo fijo, fondos comunes)": "basica",
-                "Intermedia (acciones, ETFs)": "intermedia",
-                "Avanzada (opciones, futuros)": "avanzada",
-                "Experto / institucional": "experto",
+                "Nada cómodo/a": "nada_comodo",
+                "Algo cómodo/a": "algo_comodo",
+                "Muy cómodo/a": "muy_comodo",
             },
         },
-        "objetivo": {
-            "label": "¿Cuál es tu objetivo financiero principal?",
+        "q06": {
+            "label": "6. ¿Qué palabra asociás primero con 'riesgo'?",
             "opciones": {
-                "Preservar el capital (no perder)": "preservacion",
-                "Generar ingresos estables (dividendos)": "ingreso",
-                "Crecimiento moderado + algo de ingresos": "crecimiento_ingreso",
-                "Crecimiento del capital a largo plazo": "crecimiento",
-                "Maximizar retorno (acepto alta volatilidad)": "especulacion",
+                "Pérdida": "perdida",
+                "Incertidumbre": "incertidumbre",
+                "Oportunidad": "oportunidad",
+                "Adrenalina": "adrenalina",
+            },
+        },
+        "q07": {
+            "label": "7. Tenés tus activos en bonos de gobierno; se anticipa una suba de activos duros (oro, inmuebles). ¿Qué harías?",
+            "opciones": {
+                "Mantener los bonos": "mantener_bonos",
+                "Vender la mitad y pasarla a activos duros": "mitad_activos_duros",
+                "Vender todo y pasarlo a activos duros": "todo_activos_duros",
+                "Vender todo, pasarlo a activos duros y pedir prestado para comprar más": "todo_mas_apalancado",
+            },
+        },
+        "q08": {
+            "label": "8. Elegí la combinación de ganancia/pérdida potencial que preferís",
+            "opciones": {
+                "Ganancia máx. $200 / pérdida máx. $0": "bajo_riesgo",
+                "Ganancia máx. $800 / pérdida máx. $200": "moderado_bajo",
+                "Ganancia máx. $2.600 / pérdida máx. $800": "moderado_alto",
+                "Ganancia máx. $4.800 / pérdida máx. $2.400": "alto_riesgo",
+            },
+        },
+        "q09": {
+            "label": "9. Además de lo que ya tenés, te regalan $1.000. Podés asegurarte "
+                     "una parte, o jugarte el total. ¿Qué elegís?",
+            "opciones": {
+                "Asegurarme $500 (la mitad, garantizado)": "ganancia_segura_500",
+                "Jugarme los $1.000: 50% de quedarme con los $1.000 completos, 50% de quedarme sin nada": "apuesta_50_1000",
+            },
+        },
+        "q10": {
+            "label": "10. Además de lo que ya tenés, te regalan $2.000, pero vas a perder "
+                     "una parte. ¿Qué elegís?",
+            "opciones": {
+                "Perder $500 seguro (te quedás con $1.500 garantizados)": "perdida_segura_500",
+                "Jugarte la pérdida: 50% de perder $1.000 (te quedás con $1.000), 50% de no perder nada (te quedás con los $2.000)": "apuesta_50_1000",
+            },
+        },
+        "q11": {
+            "label": "11. Heredás $100.000 que debés invertir TODO en UNA sola opción. ¿Cuál elegís?",
+            "opciones": {
+                "Caja de ahorro / money market": "ahorro",
+                "Fondo mixto de acciones y bonos": "fondo_mixto",
+                "Portafolio de acciones individuales": "acciones_individuales",
+                "Commodities (oro, plata, petróleo)": "commodities",
+            },
+        },
+        "q12": {
+            "label": "12. Si tuvieras que invertir $20.000, ¿qué combinación de riesgo preferís?",
+            "opciones": {
+                "Muy conservadora (mayoría bajo riesgo)": "muy_conservadora",
+                "Conservadora": "conservadora",
+                "Equilibrada": "equilibrada",
+                "Agresiva (mayoría alto riesgo)": "agresiva",
+            },
+        },
+        "q13": {
+            "label": "13. Un amigo geólogo arma un proyecto de mina de oro: 20% de éxito, retorno de 50-100x o pérdida total. ¿Cuánto invertirías?",
+            "opciones": {
+                "Nada": "nada",
+                "Un mes de salario": "un_mes_salario",
+                "Tres meses de salario": "tres_meses_salario",
+                "Seis meses de salario": "seis_meses_salario",
             },
         },
     }
@@ -2372,8 +2460,9 @@ def render_risk_profile_tab():
             usar_dinamica = st.checkbox(
                 "Selección dinámica de sectores (basada en datos históricos reales)",
                 value=True,
-                help="Si está activo, el sistema evalúa 22 ETFs del universo y elige los mejores "
-                     "para tu perfil usando Sharpe ratio y retorno del período seleccionado.",
+                help="Si está activo, el sistema evalúa 22 ETFs sectoriales + acciones del S&P 500 "
+                     "filtradas por precio/volumen, y elige los mejores para tu perfil usando "
+                     "Sharpe ratio y retorno del período seleccionado.",
             )
         with col_lb:
             lookback = st.selectbox(
@@ -2381,6 +2470,24 @@ def render_risk_profile_tab():
                 options=["6mo", "1y", "2y"],
                 index=1,
                 disabled=not usar_dinamica,
+            )
+        col_precio, col_vol = st.columns(2)
+        with col_precio:
+            precio_maximo = st.number_input(
+                "Precio máximo por acción (USD)",
+                min_value=10.0, max_value=10000.0, value=1000.0, step=50.0,
+                disabled=not usar_dinamica,
+                help="Descarta acciones del S&P 500 por encima de este precio (para que puedas "
+                     "diversificar con montos chicos). El piso de $5 (definición SEC de "
+                     "penny stock) siempre se aplica y no es configurable.",
+            )
+        with col_vol:
+            volumen_minimo_usd = st.number_input(
+                "Volumen diario mínimo (USD)",
+                min_value=0.0, max_value=1_000_000_000.0, value=10_000_000.0, step=1_000_000.0,
+                disabled=not usar_dinamica,
+                help="Volumen promedio en dólares (precio × volumen) mínimo para considerar una "
+                     "acción suficientemente líquida.",
             )
         submitted = st.form_submit_button("Evaluar mi perfil de riesgo", use_container_width=True, type="primary")
 
@@ -2391,6 +2498,8 @@ def render_risk_profile_tab():
         }
         payload["usar_seleccion_dinamica"] = usar_dinamica
         payload["lookback"] = lookback
+        payload["precio_maximo"] = precio_maximo
+        payload["volumen_minimo_usd"] = volumen_minimo_usd
         spinner_msg = (
             f"Evaluando perfil y seleccionando sectores con datos históricos ({lookback})..."
             if usar_dinamica else "Evaluando perfil..."
@@ -2441,6 +2550,11 @@ def render_risk_profile_tab():
             f"Perfil: {label_perfil}</div>",
             unsafe_allow_html=True,
         )
+        _periodo_txt = result.get("periodo_analisis", "predefinido")
+        st.caption(
+            f"Corrida: {_fmt_fecha_analisis(result.get('fecha_analisis'))} "
+            f"· datos: {_periodo_txt}"
+        )
 
     with col_desc:
         st.markdown(f"**Descripción del perfil**")
@@ -2465,9 +2579,10 @@ def render_risk_profile_tab():
         text=[f"{d['puntos']}/{d['max_puntos']}" for d in dims],
         textposition="outside",
     ))
+    max_puntos_dims = max((d["max_puntos"] for d in dims), default=4)
     fig_dims.update_layout(
-        xaxis=dict(range=[0, 4.5], title="Puntos"),
-        height=280,
+        xaxis=dict(range=[0, max_puntos_dims + 0.5], title="Puntos"),
+        height=max(280, 40 * len(dims)),
         margin=dict(l=10, r=60, t=10, b=30),
     )
     st.plotly_chart(fig_dims, use_container_width=True)
@@ -2621,11 +2736,35 @@ def render_risk_profile_tab():
         opt = port_data.get("optimizacion", {})
 
         st.markdown("**Métricas del portafolio con pesos sugeridos por perfil**")
+        st.caption(f"Corrida: {_fmt_fecha_analisis(port_data.get('fecha_analisis'))}")
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("Retorno esperado", f"{m.get('expected_return', 0):.1f}%")
         c2.metric("Volatilidad anual", f"{m.get('volatility', 0):.1f}%")
         c3.metric("Sharpe Ratio", f"{m.get('sharpe_ratio', 0):.2f}")
         c4.metric("VaR 95%", f"{m.get('var_95', 0):.1f}%")
+
+        # ── Transparencia Black-Litterman: Π (equilibrio) vs Q (vista de los
+        # agentes) vs μ posterior (lo que realmente usa el optimizador) ──────
+        activos_bl = port_data.get("activos", [])
+        if activos_bl and activos_bl[0].get("bl_posterior") is not None:
+            st.markdown("**Retorno esperado por activo — Black-Litterman**")
+            st.caption(
+                "El optimizador ya no usa el promedio histórico ni un blend fijo: combina el "
+                "equilibrio de mercado (Π) con las señales de ModelAgent, SentimentAgent y SECAgent "
+                "(vista Q), ponderadas por su propia confianza, para obtener el retorno posterior (μ)."
+            )
+            bl_tbl = pd.DataFrame({
+                "Ticker": [a["ticker"] for a in activos_bl],
+                "Π equilibrio (%)": [f"{a.get('bl_prior', 0):+.2f}" for a in activos_bl],
+                "Q vista agentes (%)": [f"{a.get('bl_view', 0):+.2f}" for a in activos_bl],
+                "μ posterior BL (%)": [f"{a.get('bl_posterior', 0):+.2f}" for a in activos_bl],
+                "Confianza vista": [f"{a.get('view_confidence', 0):.2f}" for a in activos_bl],
+            })
+            st.dataframe(bl_tbl, use_container_width=True, hide_index=True)
+            st.caption(
+                f"δ (aversión al riesgo) = {opt.get('delta_aversion', 0):.2f} "
+                f"(fuente: {opt.get('fuente_delta', '-')}) · τ = {opt.get('tau', 0):.3f}"
+            )
 
         # ── Síntesis narrativa ────────────────────────────────────────────
         sintesis = _generar_sintesis_portafolio(

@@ -110,9 +110,10 @@ async def analyze_portfolio(
             None,
             partial(
                 portfolio_agent.analizar_portafolio,
-                tickers,
-                body.weights,
-                body.forzar_actualizacion,
+                tickers=tickers,
+                weights=body.weights,
+                forzar_actualizacion=body.forzar_actualizacion,
+                delta_aversion=body.delta_aversion,
             ),
         )
     except ValueError as exc:
@@ -141,6 +142,10 @@ async def analyze_portfolio(
             fundamental_signal=a.sec_data.fundamental_signal,
             fundamental_score=a.sec_data.fundamental_score,
             variacion_pct=a.prediction.variacion_pct if a.prediction else 0.0,
+            bl_prior=a.bl_prior,
+            bl_view=a.bl_view,
+            bl_posterior=a.bl_posterior,
+            view_confidence=a.view_confidence,
         ))
 
     # Serializar métricas
@@ -181,6 +186,9 @@ async def analyze_portfolio(
         hrp_return=result.optimizacion.hrp_return,
         hrp_volatility=result.optimizacion.hrp_volatility,
         hrp_sharpe=result.optimizacion.hrp_sharpe,
+        delta_aversion=result.optimizacion.delta_aversion,
+        tau=result.optimizacion.tau,
+        fuente_delta=result.optimizacion.fuente_delta,
     )
 
     logger.info(f"Análisis de portafolio completado: {tickers}")

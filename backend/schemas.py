@@ -304,6 +304,11 @@ class PortfolioRequest(BaseModel):
     tickers: List[str] = Field(..., min_length=2, description="Lista de tickers (mínimo 2)")
     weights: List[float] = Field(..., min_length=2, description="Pesos de cada activo (se normalizan)")
     forzar_actualizacion: bool = Field(default=False)
+    delta_aversion: Optional[float] = Field(
+        default=None,
+        description="Coeficiente de aversión al riesgo (δ) para Black-Litterman. "
+                    "Si se omite, se estima a partir del mercado (^GSPC, He & Litterman 1999).",
+    )
 
 
 class PortfolioMetricsSchema(BaseModel):
@@ -340,6 +345,9 @@ class PortfolioOptimizationSchema(BaseModel):
     hrp_return: float = 0.0
     hrp_volatility: float = 0.0
     hrp_sharpe: float = 0.0
+    delta_aversion: float = 0.0
+    tau: float = 0.0
+    fuente_delta: str = ""
 
 
 class PortfolioAssetSchema(BaseModel):
@@ -356,6 +364,10 @@ class PortfolioAssetSchema(BaseModel):
     fundamental_signal: str
     fundamental_score: float
     variacion_pct: float
+    bl_prior: Optional[float] = None
+    bl_view: Optional[float] = None
+    bl_posterior: Optional[float] = None
+    view_confidence: Optional[float] = None
 
 
 class PortfolioResponse(BaseModel):
@@ -375,31 +387,25 @@ class PortfolioResponse(BaseModel):
 # ============================================================
 
 class RiskProfileRequest(BaseModel):
-    """Cuestionario de perfil de riesgo del inversor (6 dimensiones)."""
-    edad: str = Field(
-        ...,
-        description="Grupo etario: menor_35 | 36_45 | 46_55 | 56_65 | mayor_65",
-    )
-    horizonte: str = Field(
-        ...,
-        description="Horizonte de inversión: menos_1_anio | 1_3_anios | 3_5_anios | 5_10_anios | mas_10_anios",
-    )
-    ingresos: str = Field(
-        ...,
-        description="Estabilidad de ingresos: muy_inestable | inestable | moderada | estable | muy_estable",
-    )
-    perdidas: str = Field(
-        ...,
-        description="Reacción ante caída del 20%: vender_todo | vender_mayoria | mantener | comprar_poco | comprar_mucho",
-    )
-    experiencia: str = Field(
-        ...,
-        description="Experiencia inversora: ninguna | basica | intermedia | avanzada | experto",
-    )
-    objetivo: str = Field(
-        ...,
-        description="Objetivo financiero: preservacion | ingreso | crecimiento_ingreso | crecimiento | especulacion",
-    )
+    """
+    Cuestionario de tolerancia al riesgo del inversor — instrumento validado
+    Grable & Lytton (1999), 13 ítems ("Financial Risk Tolerance Revisited:
+    The Development of a Risk Assessment Instrument", Financial Services
+    Review 8(3), 163-181).
+    """
+    q01: str = Field(..., description="Autopercepción como tomador de riesgo: evasor | cauteloso | calculador | jugador")
+    q02: str = Field(..., description="Elección en concurso de TV: efectivo_1000 | chance_50_5000 | chance_25_10000 | chance_5_100000")
+    q03: str = Field(..., description="Vacación tras pérdida de empleo: cancelar | reducir | mantener_plan | extender")
+    q04: str = Field(..., description="Inversión de $20.000 inesperados: deposito_seguro | bonos_calidad | acciones")
+    q05: str = Field(..., description="Comodidad invirtiendo en acciones: nada_comodo | algo_comodo | muy_comodo")
+    q06: str = Field(..., description="Primera palabra asociada a 'riesgo': perdida | incertidumbre | oportunidad | adrenalina")
+    q07: str = Field(..., description="Rotación bonos vs. activos duros: mantener_bonos | mitad_activos_duros | todo_activos_duros | todo_mas_apalancado")
+    q08: str = Field(..., description="Perfil de ganancia/pérdida potencial: bajo_riesgo | moderado_bajo | moderado_alto | alto_riesgo")
+    q09: str = Field(..., description="Ganancia segura vs. apuesta: ganancia_segura_500 | apuesta_50_1000")
+    q10: str = Field(..., description="Pérdida segura vs. apuesta: perdida_segura_500 | apuesta_50_1000")
+    q11: str = Field(..., description="Herencia de $100.000 en una sola opción: ahorro | fondo_mixto | acciones_individuales | commodities")
+    q12: str = Field(..., description="Asignación de $20.000 por nivel de riesgo: muy_conservadora | conservadora | equilibrada | agresiva")
+    q13: str = Field(..., description="Inversión especulativa (mina de oro): nada | un_mes_salario | tres_meses_salario | seis_meses_salario")
     usar_seleccion_dinamica: bool = Field(
         default=True,
         description="Si True, selecciona los mejores ETFs del universo usando datos históricos reales.",
@@ -407,6 +413,17 @@ class RiskProfileRequest(BaseModel):
     lookback: str = Field(
         default="1y",
         description="Período histórico para selección dinámica: 6mo | 1y | 2y",
+    )
+    precio_maximo: Optional[float] = Field(
+        default=None,
+        description="Precio máximo por acción (USD) para el universo dinámico S&P 500 "
+                    "(accesibilidad para portafolios chicos). Default $1000 si se omite. "
+                    "El piso de $5 (definición SEC de penny stock) siempre se aplica y no es configurable.",
+    )
+    volumen_minimo_usd: Optional[float] = Field(
+        default=None,
+        description="Volumen diario mínimo en dólares (precio × volumen) para considerar una "
+                    "acción del S&P 500 suficientemente líquida. Default $10.000.000 si se omite.",
     )
 
 
@@ -451,10 +468,13 @@ class RiskProfileResponse(BaseModel):
     tickers_recomendados: List[str]
     pesos_sugeridos: List[float]
     risk_budget: RiskBudgetSchema
+    delta_aversion: float = 6.0
     advertencia: str
     seleccion_dinamica: bool = False
     periodo_analisis: str = ""
     universo_evaluado: int = 0
+    metodologia: str = "Grable & Lytton (1999) — Financial Risk Tolerance Scale, 13 ítems"
+    fecha_analisis: datetime
 
 
 class RiskPortfolioRequest(BaseModel):

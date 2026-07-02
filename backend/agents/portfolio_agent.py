@@ -11,6 +11,7 @@ y calcula métricas de portafolio según la teoría moderna de carteras:
 - Frontera eficiente
 """
 import logging
+import math
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
@@ -54,9 +55,14 @@ class AssetAnalysis:
     sentiment: object
     recommendation: object
     sec_data: object
-    expected_return: float      # % anualizado
+    expected_return: float      # % anualizado (blend histórico/ML ingenuo — solo comparación)
     volatility: float           # % anualizado
     price: float
+    # Black-Litterman (poblados en analizar_portafolio tras _calcular_black_litterman)
+    bl_prior: Optional[float] = None          # Π_i, equilibrio de mercado, % anualizado
+    bl_view: Optional[float] = None           # Q_i, view combinada de agentes, % anualizado
+    bl_posterior: Optional[float] = None      # μ_BL_i, retorno usado por el optimizador
+    view_confidence: Optional[float] = None   # confianza combinada usada para Ω_ii
 
 
 @dataclass
@@ -97,6 +103,30 @@ class PortfolioOptimization:
     hrp_return: float = 0.0
     hrp_volatility: float = 0.0
     hrp_sharpe: float = 0.0
+    # Black-Litterman — transparencia de los parámetros usados por el optimizador
+    delta_aversion: float = 0.0
+    tau: float = 0.0
+    fuente_delta: str = ""
+
+
+@dataclass
+class BlackLittermanResult:
+    """
+    Retorno posterior de Black-Litterman: combina el equilibrio de mercado (Π)
+    con "views" derivadas de ModelAgent/SentimentAgent/SECAgent (Q), ponderadas
+    por su confianza (Ω). Referencias: He & Litterman (1999), Idzorek (2005).
+    """
+    tickers: List[str]
+    pi_prior: Dict[str, float] = field(default_factory=dict)
+    q_view: Dict[str, float] = field(default_factory=dict)
+    view_confidence: Dict[str, float] = field(default_factory=dict)
+    mu_posterior: Dict[str, float] = field(default_factory=dict)
+    delta_aversion: float = 0.0
+    delta_mercado_referencia: Optional[float] = None
+    tau: float = 0.05
+    w_mkt: Dict[str, float] = field(default_factory=dict)
+    fuente_delta: str = ""            # "perfil" | "mercado"
+    disponible: bool = True
 
 
 @dataclass
@@ -109,6 +139,7 @@ class PortfolioResult:
     tickers: List[str]
     weights: Dict[str, float]
     fecha_analisis: datetime
+    black_litterman: Optional[BlackLittermanResult] = None
 
 
 class PortfolioAgent:
@@ -147,6 +178,7 @@ class PortfolioAgent:
         weights: List[float],
         forzar_actualizacion: bool = False,
         max_weight: float = 0.65,
+        delta_aversion: Optional[float] = None,
     ) -> PortfolioResult:
         """
         Analiza un portafolio completo.
@@ -155,6 +187,9 @@ class PortfolioAgent:
             tickers: Símbolos de los activos
             weights: Pesos (se normalizan a suma=1)
             forzar_actualizacion: Ignorar caché de agentes individuales
+            delta_aversion: Coeficiente de aversión al riesgo (δ) del perfil del
+                inversor, para Black-Litterman. Si es None, se estima a partir
+                del mercado (^GSPC, fórmula de aversión implícita de He & Litterman).
 
         Returns:
             PortfolioResult con análisis completo y optimización
@@ -183,8 +218,21 @@ class PortfolioAgent:
         for a in activos:
             a.weight = weights_dict[a.ticker] / total_ok
 
-        metricas = self._calcular_metricas(activos)
-        optimizacion = self._optimizar_markowitz(activos, max_weight=max_weight)
+        # Matriz de retornos calculada una sola vez y compartida por BL,
+        # métricas y optimización (evita descargas repetidas de yfinance)
+        returns_mat = self._get_returns_matrix(tickers_ok)
+
+        bl = self._calcular_black_litterman(activos, tickers_ok, returns_mat, delta_aversion)
+        for a in activos:
+            a.bl_prior = bl.pi_prior.get(a.ticker)
+            a.bl_view = bl.q_view.get(a.ticker)
+            a.bl_posterior = bl.mu_posterior.get(a.ticker)
+            a.view_confidence = bl.view_confidence.get(a.ticker)
+
+        metricas = self._calcular_metricas(activos, returns_mat=returns_mat)
+        optimizacion = self._optimizar_markowitz(
+            activos, max_weight=max_weight, returns_mat=returns_mat, bl=bl,
+        )
         recomendacion = self._generar_recomendacion(activos, metricas, optimizacion)
         alertas = self._detectar_alertas(activos, metricas)
 
@@ -197,6 +245,7 @@ class PortfolioAgent:
             tickers=tickers_ok,
             weights={a.ticker: round(a.weight, 4) for a in activos},
             fecha_analisis=datetime.now(),
+            black_litterman=bl,
         )
 
     # ------------------------------------------------------------------
@@ -271,7 +320,10 @@ class PortfolioAgent:
             annual_vol = 20.0
             hist_return = 0.0
 
-        # Mezcla retorno histórico y predicción escalada
+        # Retorno esperado ingenuo (blend histórico/ML) — se muestra solo como
+        # referencia de comparación; el optimizador usa el posterior de
+        # Black-Litterman (`AssetAnalysis.bl_posterior`, calculado en
+        # `analizar_portafolio` tras reunir todos los activos).
         pred_annual = variacion_pct * (TRADING_DAYS / 3)
         expected_return = hist_return * 0.7 + pred_annual * 0.3
 
@@ -292,13 +344,21 @@ class PortfolioAgent:
     # Métricas de portafolio
     # ------------------------------------------------------------------
 
-    def _calcular_metricas(self, activos: List[AssetAnalysis]) -> PortfolioMetrics:
+    def _calcular_metricas(
+        self, activos: List[AssetAnalysis], returns_mat: Optional[np.ndarray] = None,
+    ) -> PortfolioMetrics:
         tickers = [a.ticker for a in activos]
         w = np.array([a.weight for a in activos])
-        mu = np.array([a.expected_return for a in activos])
+        # Retorno esperado: posterior de Black-Litterman si está disponible,
+        # si no cae al blend histórico/ML ingenuo (ver _analizar_activo).
+        mu = np.array([
+            a.bl_posterior if a.bl_posterior is not None else a.expected_return
+            for a in activos
+        ])
         vols = np.array([a.volatility for a in activos])
 
-        returns_mat = self._get_returns_matrix(tickers)
+        if returns_mat is None:
+            returns_mat = self._get_returns_matrix(tickers)
 
         if returns_mat is not None and returns_mat.shape[1] == len(tickers):
             cov = np.cov(returns_mat.T) * TRADING_DAYS * (100 ** 2)
@@ -405,10 +465,223 @@ class PortfolioAgent:
             return None
 
     # ------------------------------------------------------------------
+    # Black-Litterman
+    #
+    # Combina el equilibrio de mercado (Π) con "views" derivadas de los
+    # agentes ya calculados (ModelAgent, SentimentAgent, SECAgent) para
+    # producir un retorno esperado posterior (μ_BL) que alimenta la
+    # optimización de Markowitz — en vez de la media histórica cruda o de
+    # un blend de pesos fijos inventado por el autor.
+    #
+    # Todo el cálculo se hace en retornos DECIMALES anualizados (convención
+    # estándar de la literatura de Black-Litterman: He & Litterman, 1999;
+    # Idzorek, 2005) y solo se convierte a porcentaje al final, para que δ
+    # sea directamente comparable con los rangos citados en la literatura
+    # (ej. Bodie/Kane/Marcus, coeficiente de aversión al riesgo ~2-10).
+    # ------------------------------------------------------------------
+
+    def _obtener_pesos_mercado(self, tickers: List[str]) -> Dict[str, float]:
+        """
+        Pesos de "mercado" del universo analizado: market cap (acciones) o
+        total de activos administrados/AUM (ETFs), normalizados a suma=1.
+        Es la práctica estándar en aplicaciones de Black-Litterman
+        restringidas a un universo de inversión específico (Idzorek, 2005),
+        ya que no existe un portafolio de mercado global observable para
+        una canasta arbitraria de ETFs y acciones.
+
+        Fallback: si no hay dato para un ticker, se le asigna el promedio
+        de los tickers con dato conocido (degradación razonable, no una
+        recomendación inventada).
+        """
+        n = len(tickers)
+        if not YF_AVAILABLE:
+            return {t: 1.0 / n for t in tickers}
+
+        pesos_crudos: Dict[str, float] = {}
+        for t in tickers:
+            try:
+                info = yf.Ticker(t).info
+                cap = info.get("marketCap") or info.get("totalAssets")
+                if cap:
+                    pesos_crudos[t] = float(cap)
+            except Exception as exc:
+                logger.debug(f"[{t}] No se pudo obtener market cap/AUM: {exc}")
+
+        faltantes = [t for t in tickers if t not in pesos_crudos]
+        if faltantes:
+            logger.warning(
+                f"Pesos de mercado no disponibles para {faltantes} — "
+                "se les asigna el promedio de los tickers con dato conocido"
+            )
+
+        if not pesos_crudos:
+            return {t: 1.0 / n for t in tickers}
+
+        promedio = sum(pesos_crudos.values()) / len(pesos_crudos)
+        for t in faltantes:
+            pesos_crudos[t] = promedio
+
+        total = sum(pesos_crudos[t] for t in tickers)
+        return {t: pesos_crudos[t] / total for t in tickers}
+
+    def _calcular_delta_mercado(self, tickers: List[str], periodo: str = "2y") -> Optional[float]:
+        """
+        δ_mkt = (R_mkt anualizado − Rf) / Var(R_mkt anualizado), en retornos
+        DECIMALES — la fórmula estándar de aversión al riesgo implícita por
+        optimización inversa (He & Litterman, 1999), usando ^GSPC como proxy
+        del mercado. Reutiliza el patrón de descarga de `_calcular_beta`.
+        """
+        if not (YF_AVAILABLE and PANDAS_AVAILABLE):
+            return None
+        try:
+            raw = yf.download(tickers + ["^GSPC"], period=periodo, auto_adjust=True, progress=False)
+            if raw is None or raw.empty:
+                return None
+            if isinstance(raw.columns, pd.MultiIndex):
+                closes = raw["Close"]
+            else:
+                return None
+            rets = closes.pct_change().dropna()
+            if "^GSPC" not in rets.columns:
+                return None
+            mkt = rets["^GSPC"].dropna()
+            if len(mkt) < 30:
+                return None
+            mkt_ret_dec = float(mkt.mean() * TRADING_DAYS)
+            mkt_var_dec = float(mkt.var() * TRADING_DAYS)
+            if mkt_var_dec <= 0:
+                return None
+            rf_dec = RISK_FREE_RATE_PCT / 100.0
+            delta = (mkt_ret_dec - rf_dec) / mkt_var_dec
+            return round(max(delta, 0.5), 3)
+        except Exception as exc:
+            logger.warning(f"Error calculando delta de mercado: {exc}")
+            return None
+
+    def _construir_vista_activo(
+        self, activo: AssetAnalysis, sigma_i_dec: float, pi_excess_dec_i: float,
+    ) -> Tuple[float, float]:
+        """
+        Combina las señales ya calculadas de ModelAgent, SentimentAgent y
+        SECAgent en una view de Black-Litterman para un activo.
+
+        Returns:
+            (Q_excess_dec_i, confidence_i) — view de exceso de retorno sobre
+            la tasa libre de riesgo (decimal, anualizado) y confianza
+            combinada (usada para construir Ω).
+        """
+        variacion_pct = activo.prediction.variacion_pct if activo.prediction else 0.0
+        pred_annual_dec = (variacion_pct * (TRADING_DAYS / 3)) / 100.0
+        s_model = math.tanh(pred_annual_dec / sigma_i_dec) if sigma_i_dec > 0 else 0.0
+
+        s_sentiment = float(getattr(activo.sentiment, "score", 0.0) or 0.0)
+        s_sec = float(getattr(activo.sec_data, "fundamental_score", 0.0) or 0.0)
+
+        c_model = float(activo.prediction.confianza) if activo.prediction else 0.0
+        c_sentiment = float(getattr(activo.sentiment, "confianza", 0.0) or 0.0)
+        c_sec = min(abs(s_sec), 1.0)
+
+        denom = c_model + c_sentiment + c_sec + 1e-6
+        s_combined = (
+            c_model * s_model + c_sentiment * s_sentiment + c_sec * s_sec
+        ) / denom
+        s_combined = max(-1.0, min(1.0, s_combined))
+
+        q_excess_dec = pi_excess_dec_i + s_combined * sigma_i_dec
+        confidence = c_model + c_sentiment + c_sec
+        return q_excess_dec, confidence
+
+    def _calcular_black_litterman(
+        self,
+        activos: List[AssetAnalysis],
+        tickers: List[str],
+        returns_mat: Optional[np.ndarray],
+        delta_aversion: Optional[float],
+        tau: float = 0.05,
+    ) -> "BlackLittermanResult":
+        n = len(tickers)
+        delta_mkt = self._calcular_delta_mercado(tickers)
+
+        def _fallback() -> "BlackLittermanResult":
+            return BlackLittermanResult(
+                tickers=tickers,
+                mu_posterior={a.ticker: a.expected_return for a in activos},
+                delta_aversion=delta_aversion or delta_mkt or 0.0,
+                delta_mercado_referencia=delta_mkt,
+                tau=tau,
+                fuente_delta="perfil" if delta_aversion is not None else "mercado",
+                disponible=False,
+            )
+
+        if returns_mat is None or returns_mat.shape[1] != n or n < 2:
+            logger.warning("Black-Litterman: sin matriz de retornos válida — usando retorno ingenuo")
+            return _fallback()
+
+        try:
+            sigma_dec = np.cov(returns_mat.T) * TRADING_DAYS      # decimal, anualizado
+            sigma_i_dec = np.sqrt(np.maximum(np.diag(sigma_dec), 1e-10))
+            rf_dec = RISK_FREE_RATE_PCT / 100.0
+
+            w_mkt_dict = self._obtener_pesos_mercado(tickers)
+            w_mkt = np.array([w_mkt_dict[t] for t in tickers])
+
+            delta = delta_aversion if delta_aversion is not None else delta_mkt
+            fuente = "perfil" if delta_aversion is not None else "mercado"
+            if delta is None:
+                logger.warning("Black-Litterman: no se pudo estimar δ — usando retorno ingenuo")
+                return _fallback()
+
+            pi_excess_dec = delta * (sigma_dec @ w_mkt)
+
+            q_excess_dec = np.zeros(n)
+            confidence = np.zeros(n)
+            for i, activo in enumerate(activos):
+                q_excess_dec[i], confidence[i] = self._construir_vista_activo(
+                    activo, float(sigma_i_dec[i]), float(pi_excess_dec[i])
+                )
+
+            omega = np.diag(tau * np.diag(sigma_dec) / np.maximum(confidence, 1e-6))
+
+            tau_sigma_inv = np.linalg.inv(tau * sigma_dec)
+            omega_inv = np.linalg.inv(omega)
+            posterior_cov_inv = tau_sigma_inv + omega_inv
+            mu_bl_excess_dec = np.linalg.solve(
+                posterior_cov_inv,
+                tau_sigma_inv @ pi_excess_dec + omega_inv @ q_excess_dec,
+            )
+
+            pi_total_pct = (pi_excess_dec + rf_dec) * 100
+            q_total_pct = (q_excess_dec + rf_dec) * 100
+            mu_bl_total_pct = (mu_bl_excess_dec + rf_dec) * 100
+
+            return BlackLittermanResult(
+                tickers=tickers,
+                pi_prior={t: round(float(pi_total_pct[i]), 3) for i, t in enumerate(tickers)},
+                q_view={t: round(float(q_total_pct[i]), 3) for i, t in enumerate(tickers)},
+                view_confidence={t: round(float(confidence[i]), 3) for i, t in enumerate(tickers)},
+                mu_posterior={t: round(float(mu_bl_total_pct[i]), 3) for i, t in enumerate(tickers)},
+                delta_aversion=round(float(delta), 4),
+                delta_mercado_referencia=delta_mkt,
+                tau=tau,
+                w_mkt=w_mkt_dict,
+                fuente_delta=fuente,
+                disponible=True,
+            )
+        except Exception as exc:
+            logger.warning(f"Black-Litterman falló ({exc}) — usando retorno ingenuo")
+            return _fallback()
+
+    # ------------------------------------------------------------------
     # Optimización de Markowitz
     # ------------------------------------------------------------------
 
-    def _optimizar_markowitz(self, activos: List[AssetAnalysis], max_weight: float = 0.65) -> PortfolioOptimization:
+    def _optimizar_markowitz(
+        self,
+        activos: List[AssetAnalysis],
+        max_weight: float = 0.65,
+        returns_mat: Optional[np.ndarray] = None,
+        bl: Optional["BlackLittermanResult"] = None,
+    ) -> PortfolioOptimization:
         tickers = [a.ticker for a in activos]
         n = len(tickers)
         equal_w = {t: round(1.0 / n, 4) for t in tickers}
@@ -422,16 +695,28 @@ class PortfolioAgent:
             )
 
         try:
-            returns_mat = self._get_returns_matrix(tickers)
+            if returns_mat is None:
+                returns_mat = self._get_returns_matrix(tickers)
+
             if returns_mat is not None and returns_mat.shape[1] == n:
-                mu = np.mean(returns_mat, axis=0) * TRADING_DAYS * 100
                 cov = np.cov(returns_mat.T) * TRADING_DAYS * (100 ** 2)
             else:
-                mu = np.array([a.expected_return for a in activos])
                 vols = np.array([a.volatility for a in activos])
                 corr = np.full((n, n), 0.3)
                 np.fill_diagonal(corr, 1.0)
                 cov = np.outer(vols, vols) * corr
+
+            # Retorno esperado que alimenta el optimizador: posterior de
+            # Black-Litterman (combina equilibrio de mercado + señales de
+            # todos los agentes) cuando está disponible; si no, cae a la
+            # media histórica cruda (modo degradado, logueado en
+            # _calcular_black_litterman).
+            if bl is not None and bl.disponible and bl.mu_posterior:
+                mu = np.array([bl.mu_posterior[t] for t in tickers])
+            elif returns_mat is not None and returns_mat.shape[1] == n:
+                mu = np.mean(returns_mat, axis=0) * TRADING_DAYS * 100
+            else:
+                mu = np.array([a.expected_return for a in activos])
 
             rf = RISK_FREE_RATE_PCT
             constraints = [{"type": "eq", "fun": lambda w: np.sum(w) - 1.0}]
@@ -513,6 +798,9 @@ class PortfolioAgent:
                 hrp_return=hrp_ret,
                 hrp_volatility=hrp_vol,
                 hrp_sharpe=hrp_sharpe_val,
+                delta_aversion=bl.delta_aversion if bl else 0.0,
+                tau=bl.tau if bl else 0.0,
+                fuente_delta=bl.fuente_delta if bl else "",
             )
 
         except Exception as exc:
@@ -530,6 +818,10 @@ class PortfolioAgent:
 
     # ------------------------------------------------------------------
     # Hierarchical Risk Parity
+    #
+    # HRP se apoya únicamente en la matriz de covarianza (no usa retornos
+    # esperados en absoluto), por lo que no participa de Black-Litterman —
+    # no pasar `mu`/`bl` acá, es intencional.
     # ------------------------------------------------------------------
 
     def _hrp_weights(
